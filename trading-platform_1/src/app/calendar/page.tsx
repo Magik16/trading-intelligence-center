@@ -5,12 +5,11 @@ import { WATCHLIST } from "@/lib/types";
 type Event = {
   event: string;
   country: string;
-  currency?: string;
-  date: string;
+  time: string;
   impact: string;
-  previous: number | null;
-  estimate: number | null;
-  actual: number | null;
+  prev: number | string | null;
+  estimate: number | string | null;
+  actual: number | string | null;
 };
 
 export default function CalendarPage() {
@@ -31,9 +30,7 @@ export default function CalendarPage() {
   }, []);
 
   const filtered =
-    filter === "All"
-      ? events
-      : events.filter((e) => e.currency === filter || e.country === filter);
+    filter === "All" ? events : events.filter((e) => e.country === filter);
 
   return (
     <div className="space-y-4">
@@ -41,14 +38,13 @@ export default function CalendarPage() {
 
       {error && (
         <div className="rounded border border-amber-800 bg-amber-950/40 p-3 text-sm text-amber-300">
-          {error}. The calendar needs a free FMP API key set as{" "}
-          <code>FMP_API_KEY</code> in your hosting environment — see the setup
-          instructions.
+          {error}. The calendar needs a free Finnhub API key set as{" "}
+          <code>FINNHUB_API_KEY</code> in your hosting environment.
         </div>
       )}
 
       <div className="flex flex-wrap gap-2">
-        {["All", "USD", "EUR", "GBP"].map((f) => (
+        {["All", "US", "EU", "GB"].map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -69,9 +65,9 @@ export default function CalendarPage() {
         <table className="w-full text-left text-sm">
           <thead className="text-neutral-500">
             <tr>
-              <th className="py-2">Date</th>
+              <th className="py-2">Date/time</th>
               <th>Event</th>
-              <th>Currency</th>
+              <th>Country</th>
               <th>Impact</th>
               <th>Previous</th>
               <th>Forecast</th>
@@ -81,13 +77,15 @@ export default function CalendarPage() {
           <tbody>
             {filtered.slice(0, 50).map((e, i) => (
               <tr key={i} className="border-t border-neutral-800">
-                <td className="py-2">{new Date(e.date).toLocaleString()}</td>
+                <td className="py-2">
+                  {e.time ? new Date(e.time).toLocaleString() : "—"}
+                </td>
                 <td>{e.event}</td>
-                <td>{e.currency ?? e.country}</td>
+                <td>{e.country}</td>
                 <td>
                   <ImpactDot impact={e.impact} />
                 </td>
-                <td>{e.previous ?? "—"}</td>
+                <td>{e.prev ?? "—"}</td>
                 <td>{e.estimate ?? "—"}</td>
                 <td>{e.actual ?? "—"}</td>
               </tr>
