@@ -16,7 +16,8 @@ export default function CalendarPage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<string>("All");
+  const [currencyFilter, setCurrencyFilter] = useState<string>("All");
+  const [impactOnly, setImpactOnly] = useState(true); // default: High + Medium only
 
   useEffect(() => {
     fetch("/api/calendar")
@@ -29,8 +30,13 @@ export default function CalendarPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const filtered =
-    filter === "All" ? events : events.filter((e) => e.country === filter);
+  const filtered = events
+    .filter((e) => currencyFilter === "All" || e.country === currencyFilter)
+    .filter((e) => {
+      if (!impactOnly) return true;
+      const level = e.impact?.toLowerCase();
+      return level === "high" || level === "medium";
+    });
 
   return (
     <div className="space-y-4">
@@ -42,18 +48,33 @@ export default function CalendarPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        {["All", "USD", "EUR", "GBP"].map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`rounded px-2 py-1 text-xs ${
-              filter === f ? "bg-neutral-100 text-neutral-900" : "bg-neutral-800"
-            }`}
-          >
-            {f}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap gap-2">
+          {["All", "USD", "EUR", "GBP"].map((f) => (
+            <button
+              key={f}
+              onClick={() => setCurrencyFilter(f)}
+              className={`rounded px-2 py-1 text-xs ${
+                currencyFilter === f ? "bg-neutral-100 text-neutral-900" : "bg-neutral-800"
+              }`}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+
+        <label className="flex items-center gap-2 text-xs text-neutral-400">
+          <input
+            type="checkbox"
+            checked={impactOnly}
+            onChange={(e) => setImpactOnly(e.target.checked)}
+          />
+          High &amp; medium impact only
+          <span className="ml-1 flex items-center gap-1">
+            <span className="inline-block h-2 w-2 rounded-full bg-red-500" />
+            <span className="inline-block h-2 w-2 rounded-full bg-amber-500" />
+          </span>
+        </label>
       </div>
 
       {loading ? (
@@ -112,3 +133,4 @@ function ImpactDot({ impact }: { impact: string }) {
       : "bg-green-500";
   return <span className={`inline-block h-2 w-2 rounded-full ${color}`} />;
 }
+
