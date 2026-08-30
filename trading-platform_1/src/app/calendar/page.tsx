@@ -3,13 +3,13 @@ import { useEffect, useState } from "react";
 import { WATCHLIST } from "@/lib/types";
 
 type Event = {
-  event: string;
+  title: string;
   country: string;
-  time: string;
+  date: string;
   impact: string;
-  prev: number | string | null;
-  estimate: number | string | null;
-  actual: number | string | null;
+  forecast: string | null;
+  previous: string | null;
+  actual: string | null;
 };
 
 export default function CalendarPage() {
@@ -34,17 +34,16 @@ export default function CalendarPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-medium">Economic calendar (next 7 days)</h1>
+      <h1 className="text-xl font-medium">Economic calendar (this week)</h1>
 
       {error && (
         <div className="rounded border border-amber-800 bg-amber-950/40 p-3 text-sm text-amber-300">
-          {error}. The calendar needs a free Finnhub API key set as{" "}
-          <code>FINNHUB_API_KEY</code> in your hosting environment.
+          {error}.
         </div>
       )}
 
       <div className="flex flex-wrap gap-2">
-        {["All", "US", "EU", "GB"].map((f) => (
+        {["All", "USD", "EUR", "GBP"].map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -67,7 +66,7 @@ export default function CalendarPage() {
             <tr>
               <th className="py-2">Date/time</th>
               <th>Event</th>
-              <th>Country</th>
+              <th>Currency</th>
               <th>Impact</th>
               <th>Previous</th>
               <th>Forecast</th>
@@ -75,18 +74,18 @@ export default function CalendarPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.slice(0, 50).map((e, i) => (
+            {filtered.slice(0, 80).map((e, i) => (
               <tr key={i} className="border-t border-neutral-800">
                 <td className="py-2">
-                  {e.time ? new Date(e.time).toLocaleString() : "—"}
+                  {e.date ? new Date(e.date).toLocaleString() : "—"}
                 </td>
-                <td>{e.event}</td>
+                <td>{e.title}</td>
                 <td>{e.country}</td>
                 <td>
                   <ImpactDot impact={e.impact} />
                 </td>
-                <td>{e.prev ?? "—"}</td>
-                <td>{e.estimate ?? "—"}</td>
+                <td>{e.previous ?? "—"}</td>
+                <td>{e.forecast ?? "—"}</td>
                 <td>{e.actual ?? "—"}</td>
               </tr>
             ))}
