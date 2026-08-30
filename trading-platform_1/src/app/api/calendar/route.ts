@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 
-// Pulls the economic calendar from Financial Modeling Prep's free-tier endpoint.
-// Get a free API key at https://site.financialmodelingprep.com/developer/docs
+// Pulls the economic calendar from Finnhub's free-tier endpoint.
+// Get a free API key at https://finnhub.io/register (no credit card required).
 export async function GET() {
-  const apiKey = process.env.FMP_API_KEY;
+  const apiKey = process.env.FINNHUB_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
-      { error: "FMP_API_KEY is not set. Add it to your .env.local / hosting env vars." },
+      { error: "FINNHUB_API_KEY is not set. Add it to your .env.local / hosting env vars." },
       { status: 500 }
     );
   }
@@ -15,7 +15,7 @@ export async function GET() {
   const from = today.toISOString().slice(0, 10);
   const to = new Date(today.getTime() + 7 * 86400000).toISOString().slice(0, 10);
 
-  const url = `https://financialmodelingprep.com/stable/economic-calendar?from=${from}&to=${to}&apikey=${apiKey}`;
+  const url = `https://finnhub.io/api/v1/calendar/economic?from=${from}&to=${to}&token=${apiKey}`;
 
   try {
     const res = await fetch(url, { next: { revalidate: 900 } }); // cache 15 min
@@ -26,7 +26,8 @@ export async function GET() {
       );
     }
     const data = await res.json();
-    return NextResponse.json({ events: data });
+    // Finnhub returns { economicCalendar: [...] }
+    return NextResponse.json({ events: data.economicCalendar ?? [] });
   } catch {
     return NextResponse.json({ error: "Failed to reach data provider" }, { status: 502 });
   }
