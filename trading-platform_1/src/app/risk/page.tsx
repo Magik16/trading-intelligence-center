@@ -1,7 +1,26 @@
 "use client";
 import { useState, useMemo } from "react";
+import { WATCHLIST } from "@/lib/types";
+
+// How each instrument's position size is expressed. Forex pairs convert
+// raw units into standard lots (100,000 units = 1 lot); everything else is
+// shown in its natural unit. These are simplifications for planning purposes
+// — always confirm exact contract specs (tick value, lot size) with your
+// broker before sizing a real position.
+const INSTRUMENT_META: Record<string, { unit: string; isForex: boolean }> = {
+  "EUR/USD": { unit: "units", isForex: true },
+  "GBP/USD": { unit: "units", isForex: true },
+  DXY: { unit: "contracts", isForex: false },
+  GOLD: { unit: "oz", isForex: false },
+  USOIL: { unit: "barrels", isForex: false },
+  NASDAQ: { unit: "contracts", isForex: false },
+  "S&P 500": { unit: "contracts", isForex: false },
+  US30: { unit: "contracts", isForex: false },
+  BTC: { unit: "BTC", isForex: false },
+};
 
 export default function RiskCalculator() {
+  const [instrument, setInstrument] = useState(WATCHLIST[0]);
   const [balance, setBalance] = useState(10000);
   const [riskPct, setRiskPct] = useState(1);
   const [entry, setEntry] = useState(0);
@@ -10,9 +29,12 @@ export default function RiskCalculator() {
   const [winRate, setWinRate] = useState(45);
   const [rMultiple, setRMultiple] = useState(2);
 
+  const meta = INSTRUMENT_META[instrument] ?? { unit: "units", isForex: false };
+
   const dollarRisk = (balance * riskPct) / 100;
   const stopDistance = Math.abs(entry - stop);
-  const positionSize = stopDistance > 0 ? dollarRisk / stopDistance : 0;
+  const positionSizeUnits = stopDistance > 0 ? dollarRisk / stopDistance : 0;
+  const positionSizeLots = positionSizeUnits / 100000;
   const rewardDistance = Math.abs(target - entry);
   const rr = stopDistance > 0 ? rewardDistance / stopDistance : 0;
 
@@ -35,6 +57,18 @@ export default function RiskCalculator() {
       <h1 className="text-xl font-medium">Risk calculator</h1>
 
       <section className="grid gap-4 sm:grid-cols-2">
+        <label className="block text-sm sm:col-span-2">
+          <span className="mb-1 block text-neutral-400">Instrument</span>
+          <select
+            value={instrument}
+            onChange={(e) => setInstrument(e.target.value)}
+            className="w-full rounded border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100"
+          >
+            {WATCHLIST.map((w) => (
+              <option key={w}>{w}</option>
+            ))}
+          </select>
+        </label>
         <Field label="Account balance ($)" value={balance} onChange={setBalance} />
         <Field label="Risk per trade (%)" value={riskPct} onChange={setRiskPct} step={0.1} />
         <Field label="Entry price" value={entry} onChange={setEntry} step={0.0001} />
@@ -45,12 +79,25 @@ export default function RiskCalculator() {
       <section className="grid gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-4 sm:grid-cols-2">
         <Stat label="Dollar risk" value={`$${dollarRisk.toFixed(2)}`} />
         <Stat
-          label="Position size (units)"
-          value={stopDistance > 0 ? positionSize.toFixed(4) : "—"}
+          label={`Position size (${meta.unit})`}
+          value={stopDistance > 0 ? positionSizeUnits.toFixed(4) : "—"}
         />
+        {meta.isForex && (
+          <Stat
+            label="Position size (standard lots)"
+            value={stopDistance > 0 ? positionSizeLots.toFixed(3) : "—"}
+          />
+        )}
         <Stat label="Reward:Risk" value={stopDistance > 0 ? `${rr.toFixed(2)}R` : "—"} />
         <Stat label="Max loss if stopped" value={`$${dollarRisk.toFixed(2)}`} />
       </section>
+
+      <p className="text-xs text-neutral-600">
+        Position sizing here uses a simplified units-per-dollar-of-risk
+        formula. Contract multipliers vary by broker for indices, oil, and
+        DXY — confirm your broker's exact contract spec before sizing a real
+        position.
+      </p>
 
       <section className="space-y-4">
         <h2 className="text-lg font-medium">Drawdown / risk-of-ruin simulator</h2>
