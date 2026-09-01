@@ -4,6 +4,7 @@ import { WATCHLIST } from "@/lib/types";
 const cards = [
   { href: "/calendar", title: "Economic calendar", desc: "Live events for the week ahead, filterable by currency and asset." },
     { href: "/macro", title: "Macro dashboard", desc: "USD indicators — inflation, employment, growth, policy rates." },
+    { href: "/weekly-bias", title: "Weekly bias", desc: "Your bias per instrument each week, with an AI summary of what you wrote." },
   { href: "/plan", title: "Trading plan", desc: "Define your setups, sessions, and rules." },
   { href: "/journal", title: "Journal", desc: "Log trades and track win rate, R, and plan compliance." },
   { href: "/risk", title: "Risk calculator", desc: "Position sizing and drawdown simulation." },
