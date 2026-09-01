@@ -6,6 +6,7 @@ const links = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/calendar", label: "Calendar" },
     { href: "/macro", label: "Macro" },
+    { href: "/weekly-bias", label: "Weekly bias" },
   { href: "/plan", label: "Trading plan" },
   { href: "/journal", label: "Journal" },
   { href: "/risk", label: "Risk calculator" },
