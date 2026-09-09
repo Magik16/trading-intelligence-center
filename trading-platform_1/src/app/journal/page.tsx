@@ -10,9 +10,12 @@ type Entry = {
   entry: number | null;
   stop: number | null;
   target: number | null;
+  risk_usd: number | null;
   result_r: number | null;
   setup_tag: string | null;
   followed_plan: boolean;
+  chart_h4: string | null;
+  chart_15m: string | null;
   traded_at: string;
 };
 
@@ -26,11 +29,15 @@ export default function Journal() {
     entry: "",
     stop: "",
     target: "",
+    risk_usd: "",
     result_r: "",
     setup_tag: "",
     followed_plan: true,
+    chart_h4: "",
+    chart_15m: "",
   });
   const [error, setError] = useState<string | null>(null);
+  const [chartsOpen, setChartsOpen] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -64,12 +71,30 @@ export default function Journal() {
       entry: parseFloat(form.entry) || null,
       stop: parseFloat(form.stop) || null,
       target: parseFloat(form.target) || null,
+      risk_usd: parseFloat(form.risk_usd) || null,
       result_r: parseFloat(form.result_r) || null,
       setup_tag: form.setup_tag || null,
       followed_plan: form.followed_plan,
+      chart_h4: form.chart_h4 || null,
+      chart_15m: form.chart_15m || null,
     });
     if (error) setError(error.message);
-    else load();
+    else {
+      setForm({
+        instrument: WATCHLIST[0],
+        direction: "long",
+        entry: "",
+        stop: "",
+        target: "",
+        risk_usd: "",
+        result_r: "",
+        setup_tag: "",
+        followed_plan: true,
+        chart_h4: "",
+        chart_15m: "",
+      });
+      load();
+    }
   }
 
   const winCount = entries.filter((e) => (e.result_r ?? 0) > 0).length;
@@ -146,6 +171,12 @@ export default function Journal() {
             className="rounded border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm"
           />
           <input
+            placeholder="Risk ($) — dollar amount at risk"
+            value={form.risk_usd}
+            onChange={(e) => setForm({ ...form, risk_usd: e.target.value })}
+            className="rounded border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm"
+          />
+          <input
             placeholder="Result (R)"
             value={form.result_r}
             onChange={(e) => setForm({ ...form, result_r: e.target.value })}
@@ -160,6 +191,27 @@ export default function Journal() {
             Followed plan
           </label>
         </div>
+
+        <div className="rounded border border-neutral-800 p-3">
+          <p className="mb-2 text-xs text-neutral-500">
+            Chart links — paste your TradingView (or any) share links, same as your spreadsheet
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input
+              placeholder="H4 chart link"
+              value={form.chart_h4}
+              onChange={(e) => setForm({ ...form, chart_h4: e.target.value })}
+              className="rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm"
+            />
+            <input
+              placeholder="15min chart link"
+              value={form.chart_15m}
+              onChange={(e) => setForm({ ...form, chart_15m: e.target.value })}
+              className="rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm"
+            />
+          </div>
+        </div>
+
         <button
           type="submit"
           className="rounded bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900"
@@ -181,22 +233,61 @@ export default function Journal() {
                 <th className="py-2">Instrument</th>
                 <th>Dir</th>
                 <th>Setup</th>
+                <th>Risk ($)</th>
                 <th>R</th>
                 <th>Plan?</th>
+                <th>Charts</th>
               </tr>
             </thead>
             <tbody>
-              {entries.map((e) => (
-                <tr key={e.id} className="border-t border-neutral-800">
-                  <td className="py-2">{e.instrument}</td>
-                  <td>{e.direction}</td>
-                  <td>{e.setup_tag ?? "—"}</td>
-                  <td className={e.result_r && e.result_r > 0 ? "text-green-400" : "text-red-400"}>
-                    {e.result_r ?? "—"}
-                  </td>
-                  <td>{e.followed_plan ? "Yes" : "No"}</td>
-                </tr>
-              ))}
+              {entries.map((e) => {
+                const hasCharts =
+                  e.chart_h4 || e.chart_15m;
+                return (
+                  <>
+                    <tr key={e.id} className="border-t border-neutral-800">
+                      <td className="py-2">{e.instrument}</td>
+                      <td>{e.direction}</td>
+                      <td>{e.setup_tag ?? "—"}</td>
+                      <td>{e.risk_usd != null ? `$${e.risk_usd}` : "—"}</td>
+                      <td className={e.result_r && e.result_r > 0 ? "text-green-400" : "text-red-400"}>
+                        {e.result_r ?? "—"}
+                      </td>
+                      <td>{e.followed_plan ? "Yes" : "No"}</td>
+                      <td>
+                        {hasCharts ? (
+                          <button
+                            onClick={() => setChartsOpen(chartsOpen === e.id ? null : e.id)}
+                            className="text-xs text-neutral-500 hover:text-neutral-300"
+                          >
+                            {chartsOpen === e.id ? "Hide" : "View"}
+                          </button>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                    {chartsOpen === e.id && hasCharts && (
+                      <tr className="border-t border-neutral-900 bg-neutral-950">
+                        <td colSpan={7} className="py-2">
+                          <div className="flex flex-wrap gap-3 text-xs">
+                            {e.chart_h4 && (
+                              <a href={e.chart_h4} target="_blank" className="text-blue-400 hover:underline">
+                                H4
+                              </a>
+                            )}
+                            {e.chart_15m && (
+                              <a href={e.chart_15m} target="_blank" className="text-blue-400 hover:underline">
+                                15min
+                              </a>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                );
+              })}
             </tbody>
           </table>
         )}
