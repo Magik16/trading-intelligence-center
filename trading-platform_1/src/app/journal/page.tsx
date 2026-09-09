@@ -19,25 +19,28 @@ type Entry = {
   traded_at: string;
 };
 
+const emptyForm = {
+  instrument: WATCHLIST[0],
+  direction: "long",
+  entry: "",
+  stop: "",
+  target: "",
+  risk_usd: "",
+  result_r: "",
+  setup_tag: "",
+  followed_plan: true,
+  chart_h4: "",
+  chart_15m: "",
+};
+
 export default function Journal() {
   const supabase = createClient();
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({
-    instrument: WATCHLIST[0],
-    direction: "long",
-    entry: "",
-    stop: "",
-    target: "",
-    risk_usd: "",
-    result_r: "",
-    setup_tag: "",
-    followed_plan: true,
-    chart_h4: "",
-    chart_15m: "",
-  });
+  const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
   const [chartsOpen, setChartsOpen] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -54,7 +57,40 @@ export default function Journal() {
     load();
   }, []);
 
-  async function addEntry(e: React.FormEvent) {
+  function startEdit(e: Entry) {
+    setEditingId(e.id);
+    setForm({
+      instrument: e.instrument,
+      direction: e.direction,
+      entry: e.entry?.toString() ?? "",
+      stop: e.stop?.toString() ?? "",
+      target: e.target?.toString() ?? "",
+      risk_usd: e.risk_usd?.toString() ?? "",
+      result_r: e.result_r?.toString() ?? "",
+      setup_tag: e.setup_tag ?? "",
+      followed_plan: e.followed_plan,
+      chart_h4: e.chart_h4 ?? "",
+      chart_15m: e.chart_15m ?? "",
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setForm(emptyForm);
+  }
+
+  async function deleteEntry(id: string) {
+    if (!confirm("Delete this trade entry? This can't be undone.")) return;
+    const { error } = await supabase.from("journal_entries").delete().eq("id", id);
+    if (error) setError(error.message);
+    else {
+      if (editingId === id) cancelEdit();
+      load();
+    }
+  }
+
+  async function submitForm(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     const {
@@ -64,8 +100,7 @@ export default function Journal() {
       setError("You need to be signed in — see the sign-in note below.");
       return;
     }
-    const { error } = await supabase.from("journal_entries").insert({
-      user_id: user.id,
+    const payload = {
       instrument: form.instrument,
       direction: form.direction,
       entry: parseFloat(form.entry) || null,
@@ -77,23 +112,27 @@ export default function Journal() {
       followed_plan: form.followed_plan,
       chart_h4: form.chart_h4 || null,
       chart_15m: form.chart_15m || null,
-    });
-    if (error) setError(error.message);
-    else {
-      setForm({
-        instrument: WATCHLIST[0],
-        direction: "long",
-        entry: "",
-        stop: "",
-        target: "",
-        risk_usd: "",
-        result_r: "",
-        setup_tag: "",
-        followed_plan: true,
-        chart_h4: "",
-        chart_15m: "",
-      });
-      load();
+    };
+
+    if (editingId) {
+      const { error } = await supabase
+        .from("journal_entries")
+        .update(payload)
+        .eq("id", editingId);
+      if (error) setError(error.message);
+      else {
+        cancelEdit();
+        load();
+      }
+    } else {
+      const { error } = await supabase
+        .from("journal_entries")
+        .insert({ user_id: user.id, ...payload });
+      if (error) setError(error.message);
+      else {
+        setForm(emptyForm);
+        load();
+      }
     }
   }
 
@@ -125,8 +164,21 @@ export default function Journal() {
         />
       </section>
 
-      <form onSubmit={addEntry} className="space-y-3 rounded-lg border border-neutral-800 p-4">
-        <h2 className="text-sm font-medium text-neutral-400">Log a trade</h2>
+      <form onSubmit={submitForm} className="space-y-3 rounded-lg border border-neutral-800 p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium text-neutral-400">
+            {editingId ? "Edit trade" : "Log a trade"}
+          </h2>
+          {editingId && (
+            <button
+              type="button"
+              onClick={cancelEdit}
+              className="text-xs text-neutral-500 hover:text-neutral-300"
+            >
+              Cancel edit
+            </button>
+          )}
+        </div>
         {error && <p className="text-sm text-red-400">{error}</p>}
         <div className="grid gap-3 sm:grid-cols-3">
           <select
@@ -216,7 +268,7 @@ export default function Journal() {
           type="submit"
           className="rounded bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900"
         >
-          Add entry
+          {editingId ? "Update entry" : "Add entry"}
         </button>
       </form>
 
@@ -237,15 +289,20 @@ export default function Journal() {
                 <th>R</th>
                 <th>Plan?</th>
                 <th>Charts</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {entries.map((e) => {
-                const hasCharts =
-                  e.chart_h4 || e.chart_15m;
+                const hasCharts = e.chart_h4 || e.chart_15m;
                 return (
                   <>
-                    <tr key={e.id} className="border-t border-neutral-800">
+                    <tr
+                      key={e.id}
+                      className={`border-t border-neutral-800 ${
+                        editingId === e.id ? "bg-neutral-900" : ""
+                      }`}
+                    >
                       <td className="py-2">{e.instrument}</td>
                       <td>{e.direction}</td>
                       <td>{e.setup_tag ?? "—"}</td>
@@ -266,10 +323,24 @@ export default function Journal() {
                           "—"
                         )}
                       </td>
+                      <td className="whitespace-nowrap text-right">
+                        <button
+                          onClick={() => startEdit(e)}
+                          className="mr-3 text-xs text-blue-400 hover:underline"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => deleteEntry(e.id)}
+                          className="text-xs text-red-400 hover:underline"
+                        >
+                          Delete
+                        </button>
+                      </td>
                     </tr>
                     {chartsOpen === e.id && hasCharts && (
                       <tr className="border-t border-neutral-900 bg-neutral-950">
-                        <td colSpan={7} className="py-2">
+                        <td colSpan={8} className="py-2">
                           <div className="flex flex-wrap gap-3 text-xs">
                             {e.chart_h4 && (
                               <a href={e.chart_h4} target="_blank" className="text-blue-400 hover:underline">
