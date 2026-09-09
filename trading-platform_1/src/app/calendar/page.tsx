@@ -12,6 +12,24 @@ type Event = {
   actual: string | null;
 };
 
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_NAMES = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+function dayLabel(dateStr: string): string {
+  const d = new Date(dateStr);
+  return `${DAY_NAMES[d.getDay()]} ${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`;
+}
+
+function timeLabel(dateStr: string): string {
+  const d = new Date(dateStr);
+  const hasTime = d.getHours() !== 0 || d.getMinutes() !== 0;
+  if (!hasTime) return "All Day";
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
 export default function CalendarPage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +54,20 @@ export default function CalendarPage() {
       if (!impactOnly) return true;
       const level = e.impact?.toLowerCase();
       return level === "high" || level === "medium";
-    });
+    })
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  // Group events by calendar day (YYYY-MM-DD), preserving chronological order.
+  const grouped: { dayKey: string; events: Event[] }[] = [];
+  for (const e of filtered) {
+    const dayKey = e.date.slice(0, 10);
+    let group = grouped.find((g) => g.dayKey === dayKey);
+    if (!group) {
+      group = { dayKey, events: [] };
+      grouped.push(group);
+    }
+    group.events.push(e);
+  }
 
   return (
     <div className="space-y-4">
@@ -79,39 +110,47 @@ export default function CalendarPage() {
 
       {loading ? (
         <p className="text-neutral-500">Loading…</p>
-      ) : filtered.length === 0 && !error ? (
+      ) : grouped.length === 0 && !error ? (
         <p className="text-neutral-500">No events found for this filter.</p>
       ) : (
-        <table className="w-full text-left text-sm">
-          <thead className="text-neutral-500">
-            <tr>
-              <th className="py-2">Date/time</th>
-              <th>Event</th>
-              <th>Currency</th>
-              <th>Impact</th>
-              <th>Previous</th>
-              <th>Forecast</th>
-              <th>Actual</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.slice(0, 80).map((e, i) => (
-              <tr key={i} className="border-t border-neutral-800">
-                <td className="py-2">
-                  {e.date ? new Date(e.date).toLocaleString() : "—"}
-                </td>
-                <td>{e.title}</td>
-                <td>{e.country}</td>
-                <td>
-                  <ImpactDot impact={e.impact} />
-                </td>
-                <td>{e.previous ?? "—"}</td>
-                <td>{e.forecast ?? "—"}</td>
-                <td>{e.actual ?? "—"}</td>
+        <div className="overflow-hidden rounded-lg border border-neutral-800">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-neutral-800 text-neutral-500">
+              <tr>
+                <th className="w-28 py-2 pl-3">Day</th>
+                <th className="w-20">Time</th>
+                <th>Event</th>
+                <th className="w-16">Ccy</th>
+                <th className="w-12">Impact</th>
+                <th className="w-20">Previous</th>
+                <th className="w-20">Forecast</th>
+                <th className="w-20 pr-3">Actual</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {grouped.map((group) => (
+                <>
+                  {group.events.map((e, i) => (
+                    <tr key={`${group.dayKey}-${i}`} className="border-t border-neutral-900">
+                      <td className="py-2 pl-3 align-top font-medium text-neutral-300">
+                        {i === 0 ? dayLabel(group.dayKey) : ""}
+                      </td>
+                      <td className="align-top text-neutral-500">{timeLabel(e.date)}</td>
+                      <td className="align-top">{e.title}</td>
+                      <td className="align-top text-neutral-400">{e.country}</td>
+                      <td className="align-top">
+                        <ImpactDot impact={e.impact} />
+                      </td>
+                      <td className="align-top text-neutral-500">{e.previous ?? "—"}</td>
+                      <td className="align-top text-neutral-500">{e.forecast ?? "—"}</td>
+                      <td className="align-top pr-3 text-neutral-500">{e.actual ?? "—"}</td>
+                    </tr>
+                  ))}
+                </>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       <p className="pt-4 text-xs text-neutral-600">
@@ -133,4 +172,3 @@ function ImpactDot({ impact }: { impact: string }) {
       : "bg-green-500";
   return <span className={`inline-block h-2 w-2 rounded-full ${color}`} />;
 }
-
