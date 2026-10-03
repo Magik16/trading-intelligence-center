@@ -73,7 +73,7 @@ export default function StrengthPage() {
               {pairs.map((p) => {
                 const maxAbs = Math.max(0.01, ...p.weeks.map((w) => Math.abs(w.pct)));
                 const byWeek = new Map(p.weeks.map((w) => [w.weekOf, w]));
-                const completed = p.weeks.filter((w) => !w.inProgress);
+                const completed = p.weeks.filter((w) => !w.inProgress && allWeeks.includes(w.weekOf));
                 const upCount = completed.filter((w) => w.pct > 0).length;
                 const downCount = completed.filter((w) => w.pct < 0).length;
                 return (
