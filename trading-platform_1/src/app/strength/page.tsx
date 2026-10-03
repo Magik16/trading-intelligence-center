@@ -11,6 +11,7 @@ import {
   ReferenceLine,
   ResponsiveContainer,
   Cell,
+  LabelList,
 } from "recharts";
 
 type Week = { weekOf: string; pct: number; inProgress: boolean };
@@ -39,22 +40,28 @@ const SERIES_NAME: Record<string, string> = {
   CBBTCUSD: "BTC",
 };
 
-const GROUPS: { title: string; caption: string; ids: string[] }[] = [
+const GROUPS: { title: string; caption: string; ids: string[]; left: string; right: string }[] = [
   {
     title: "Currencies — who won each week",
     caption:
       "Above 0 = EUR / GBP stronger (USD weaker). Below 0 = USD stronger. The USD index is flipped so it reads the same way as the pairs.",
     ids: ["DEXUSEU", "DEXUSUK", "DTWEXBGS"],
+    left: "USD stronger",
+    right: "EUR / GBP stronger",
   },
   {
     title: "Stock indices — buyers vs sellers",
     caption: "Above 0 = buyers won the week. Below 0 = sellers won.",
     ids: ["NASDAQCOM", "SP500", "DJIA"],
+    left: "Sellers won",
+    right: "Buyers won",
   },
   {
     title: "Oil & Bitcoin — buyers vs sellers",
     caption: "Above 0 = buyers won the week. Below 0 = sellers won. Bigger moves, so they get their own scale.",
     ids: ["DCOILWTICO", "CBBTCUSD"],
+    left: "Sellers won",
+    right: "Buyers won",
   },
 ];
 
@@ -66,6 +73,24 @@ function weekLabel(weekOf: string): string {
 // The USD index rises when USD wins; flip it (exactly) so "above 0" always means USD weaker.
 function chartValue(p: Pair, pct: number): number {
   return p.seriesId === "DTWEXBGS" ? (1 / (1 + pct / 100) - 1) * 100 : pct;
+}
+
+// Symmetric axis with round numbers, so zero sits in the middle and bar labels have room.
+function niceScale(rows: Record<string, string | number | boolean>[], names: string[]) {
+  let maxAbs = 0;
+  for (const r of rows) {
+    for (const n of names) {
+      const v = r[n];
+      if (typeof v === "number") maxAbs = Math.max(maxAbs, Math.abs(v));
+    }
+  }
+  maxAbs = Math.max(maxAbs * 1.15, 0.1);
+  const steps = [0.1, 0.25, 0.5, 1, 2, 2.5, 5, 10, 20, 25, 50, 100];
+  const step = steps.find((s) => Math.ceil(maxAbs / s) <= 4) ?? 100;
+  const max = Math.ceil(maxAbs / step) * step;
+  const ticks: number[] = [];
+  for (let t = -max; t <= max + 1e-9; t += step) ticks.push(Number(t.toFixed(4)));
+  return { max, ticks };
 }
 
 export default function StrengthPage() {
@@ -128,19 +153,42 @@ export default function StrengthPage() {
             const groupPairs = g.ids
               .map((id) => pairs.find((p) => p.seriesId === id))
               .filter((p): p is Pair => !!p);
-            const rows = buildRows(groupPairs);
+            const names = groupPairs.map((p) => SERIES_NAME[p.seriesId]);
+            // drop weeks with no data for this group (e.g. FX lag), newest week at the top
+            const rows = buildRows(groupPairs)
+              .filter((r) => names.some((n) => typeof r[n] === "number"))
+              .reverse();
+            const { max: axisMax, ticks: axisTicks } = niceScale(rows, names);
+            const chartHeight = rows.length * (groupPairs.length * 15 + 26) + 70;
             const failed = groupPairs.filter((p) => p.error);
             return (
               <section key={g.title} className="rounded-lg border border-neutral-800 p-4">
                 <h2 className="text-center text-base font-medium text-neutral-200">{g.title}</h2>
                 <p className="mb-3 text-center text-xs text-neutral-500">{g.caption}</p>
-                <div className="h-80 w-full">
+                <div className="mb-1 flex justify-between px-1 text-xs font-medium text-neutral-400">
+                  <span>◀ {g.left}</span>
+                  <span>{g.right} ▶</span>
+                </div>
+                <div className="w-full" style={{ height: chartHeight }}>
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
-                      <XAxis dataKey="week" stroke="#737373" tick={{ fontSize: 11 }} />
-                      <YAxis stroke="#737373" tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}%`} />
-                      <ReferenceLine y={0} stroke="#737373" />
+                    <BarChart
+                      layout="vertical"
+                      data={rows}
+                      margin={{ top: 4, right: 48, left: 4, bottom: 0 }}
+                      barCategoryGap="18%"
+                      barGap={2}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#262626" horizontal={false} />
+                      <XAxis
+                        type="number"
+                        domain={[-axisMax, axisMax]}
+                        ticks={axisTicks}
+                        stroke="#737373"
+                        tick={{ fontSize: 11 }}
+                        tickFormatter={(v) => `${v}%`}
+                      />
+                      <YAxis type="category" dataKey="week" stroke="#737373" tick={{ fontSize: 11 }} width={62} />
+                      <ReferenceLine x={0} stroke="#a3a3a3" />
                       <Tooltip
                         formatter={(value) => `${Number(value).toFixed(2)}%`}
                         contentStyle={{ background: "#171717", border: "1px solid #404040", fontSize: 12 }}
@@ -149,10 +197,21 @@ export default function StrengthPage() {
                       />
                       <Legend iconType="square" wrapperStyle={{ fontSize: 12 }} />
                       {groupPairs.map((p) => (
-                        <Bar key={p.seriesId} dataKey={SERIES_NAME[p.seriesId]} fill={colorFor[p.seriesId]}>
+                        <Bar
+                          key={p.seriesId}
+                          dataKey={SERIES_NAME[p.seriesId]}
+                          fill={colorFor[p.seriesId]}
+                          isAnimationActive={false}
+                        >
                           {rows.map((r, i) => (
                             <Cell key={i} fillOpacity={r.inProgress ? 0.45 : 1} />
                           ))}
+                          <LabelList
+                            dataKey={SERIES_NAME[p.seriesId]}
+                            position="right"
+                            formatter={(v: unknown) => `${Number(v) > 0 ? "+" : ""}${Number(v).toFixed(2)}`}
+                            style={{ fontSize: 10, fill: "#a3a3a3" }}
+                          />
                         </Bar>
                       ))}
                     </BarChart>
