@@ -43,14 +43,23 @@ export async function askClaude(system: string, user: string, maxTokens = 1500) 
       return { ok: false as const, error: `Anthropic API returned ${res.status}: ${text.slice(0, 200)}` };
     }
     const data = await res.json();
-    const text = ((data.content ?? []) as { type: string; text?: string }[])
+    const blocks = (data.content ?? []) as { type: string; text?: string }[];
+    const text = blocks
       .filter((b) => b.type === "text")
       .map((b) => b.text ?? "")
       .join("\n")
       .trim();
+    if (!text) {
+      // Never pretend an empty reply is a success: say why it was empty.
+      const kinds = blocks.map((b) => b.type).join(", ") || "none";
+      return {
+        ok: false as const,
+        error: `The model returned no text (stop reason: ${data.stop_reason ?? "unknown"}; content blocks: ${kinds}). Try again.`,
+      };
+    }
     return {
       ok: true as const,
-      text: text || "No response returned.",
+      text,
       usage: { input: data.usage?.input_tokens ?? 0, output: data.usage?.output_tokens ?? 0 },
     };
   } catch {
