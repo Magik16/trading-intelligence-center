@@ -8,6 +8,8 @@ type WeeklyEntry = {
   bias: "Bullish" | "Bearish" | "Neutral";
   key_levels: string;
   notes: string;
+  chart_h4: string;
+  chart_15m: string;
 };
 
 type MonthlyEntry = {
@@ -95,7 +97,7 @@ function PriceLine({ instrument, price }: { instrument: string; price?: Price })
 
 function emptyWeekly(): Record<string, WeeklyEntry> {
   return Object.fromEntries(
-    WATCHLIST.map((w) => [w, { instrument: w, bias: "Neutral" as const, key_levels: "", notes: "" }])
+    WATCHLIST.map((w) => [w, { instrument: w, bias: "Neutral" as const, key_levels: "", notes: "", chart_h4: "", chart_15m: "" }])
   );
 }
 
@@ -122,10 +124,10 @@ export default function WeeklyBiasPage() {
   const [error, setError] = useState<string | null>(null);
   const [savingWeek, setSavingWeek] = useState(false);
   const [savingMonth, setSavingMonth] = useState(false);
-  const [summary, setSummary] = useState<string | null>(null);
+  type AiResult = { loading: boolean; text?: string; error?: string; charts?: string[] };
+  const [results, setResults] = useState<Record<string, AiResult>>({});
   const [summaryError, setSummaryError] = useState<string | null>(null);
-  const [summaryLoading, setSummaryLoading] = useState(false);
-  const [summaryWeek, setSummaryWeek] = useState<string | null>(null);
+  const anyLoading = Object.values(results).some((r) => r.loading);
   const [prices, setPrices] = useState<Record<string, Price> | null>(null);
 
   // When month changes, recompute its weeks and jump to the week containing
@@ -144,7 +146,7 @@ export default function WeeklyBiasPage() {
     (week: string) => {
       if (!week) return;
       setWeekly(emptyWeekly());
-      setSummary(null);
+      setResults({});
       supabase
         .from("weekly_bias")
         .select("*")
@@ -154,7 +156,14 @@ export default function WeeklyBiasPage() {
           if (data && data.length > 0) {
             setWeekly((prev) => {
               const next = { ...prev };
-              for (const row of data) next[row.instrument] = row;
+              for (const row of data)
+                next[row.instrument] = {
+                  ...row,
+                  key_levels: row.key_levels ?? "",
+                  notes: row.notes ?? "",
+                  chart_h4: row.chart_h4 ?? "",
+                  chart_15m: row.chart_15m ?? "",
+                };
               return next;
             });
           }
@@ -245,6 +254,8 @@ export default function WeeklyBiasPage() {
       bias: e.bias,
       key_levels: e.key_levels,
       notes: e.notes,
+      chart_h4: e.chart_h4 || null,
+      chart_15m: e.chart_15m || null,
     }));
     const { error } = await supabase
       .from("weekly_bias")
@@ -278,18 +289,12 @@ export default function WeeklyBiasPage() {
     setSavingMonth(false);
   }
 
-  async function buildPack(): Promise<string> {
+  // Shared context for the selected week: real prices, calendar (current week only), outlook, plan.
+  async function buildContext(): Promise<string> {
     const isCurrent = weekOf === mondayOf(new Date());
     const monthLabel = months.find((m) => m.value === selectedMonth)?.label ?? selectedMonth;
     const lines: string[] = [];
-    lines.push(`== TRADER'S WEEKLY ENTRIES (week starting ${weekOf}) ==`);
-    for (const w of WATCHLIST) {
-      const e = weekly[w];
-      const empty = e.bias === "Neutral" && !e.key_levels.trim() && !e.notes.trim();
-      if (empty) lines.push(`${w}: No view entered`);
-      else lines.push(`${w}: bias ${e.bias} | levels: ${e.key_levels || "none"} | notes: ${e.notes || "none"}`);
-    }
-    lines.push("", `== REAL PRICES FOR THE WEEK OF ${weekOf} (daily data, Yahoo Finance; only prices in this section are real) ==`);
+    lines.push(`== REAL PRICES FOR THE WEEK OF ${weekOf} (daily data, Yahoo Finance; only prices in this section are real) ==`);
     for (const w of WATCHLIST) {
       const p = prices?.[w];
       if (!p) lines.push(`${w}: price not loaded`);
@@ -303,7 +308,7 @@ export default function WeeklyBiasPage() {
     for (const w of WATCHLIST) {
       const m = monthly[w];
       const empty = m.bias === "Neutral" && !m.notes.trim();
-      lines.push(empty ? `${w}: No view entered` : `${w}: ${m.bias} | ${m.notes || "no notes"}`);
+      lines.push(empty ? `${w}: nothing entered` : `${w}: ${m.bias} | ${m.notes || "no notes"}`);
     }
     lines.push("", "== ECONOMIC CALENDAR (USD, EUR, GBP; high and medium impact) ==");
     if (!isCurrent) {
@@ -332,61 +337,66 @@ export default function WeeklyBiasPage() {
     return lines.join("\n");
   }
 
-  async function generateSummary() {
-    setSummaryLoading(true);
-    setSummaryError(null);
-    setSummary(null);
-    const forWeek = weekOf;
+  async function runOne(instrument: string, context: string, token: string, forWeek: string) {
+    setResults((r) => ({ ...r, [instrument]: { loading: true } }));
+    const e = weekly[instrument];
+    const entered = !(e.bias === "Neutral" && !e.key_levels.trim() && !e.notes.trim());
+    const own = entered
+      ? `== TRADER'S OWN ENTRY FOR ${instrument} (week of ${forWeek}) ==\nbias: ${e.bias}\nkey levels: ${e.key_levels || "none"}\nnotes: ${e.notes || "none"}`
+      : `== TRADER'S OWN ENTRY FOR ${instrument} (week of ${forWeek}) ==\nThe trader entered nothing for this instrument.`;
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session) {
-        setSummaryError("You need to be signed in.");
-        return;
-      }
-      const pack = await buildPack();
       const res = await fetch("/api/weekly-summary", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ weekOf: forWeek, pack }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          weekOf: forWeek,
+          instrument,
+          pack: `${own}\n\n${context}`,
+          charts: [
+            { label: "H4", url: e.chart_h4 },
+            { label: "15m", url: e.chart_15m },
+          ],
+        }),
       });
       const data = await res.json();
-      if (data.error) setSummaryError(data.error);
-      else {
-        setSummary(data.summary);
-        setSummaryWeek(forWeek);
-      }
+      setResults((r) => ({
+        ...r,
+        [instrument]: data.error ? { loading: false, error: data.error } : { loading: false, text: data.text, charts: data.charts },
+      }));
     } catch {
-      setSummaryError("Failed to generate summary");
-    } finally {
-      setSummaryLoading(false);
+      setResults((r) => ({ ...r, [instrument]: { loading: false, error: "Failed to generate." } }));
     }
   }
 
-  const summaryBlocks = useMemo(() => {
-    if (!summary) return [];
-    return summary
-      .split(/^=== (.+?) ===\s*$/m)
-      .slice(1)
-      .reduce<{ name: string; lines: { label: string; text: string }[] }[]>((acc, part, i, arr) => {
-        if (i % 2 === 1) return acc;
-        const body = arr[i + 1] ?? "";
-        const lines = body
-          .split("\n")
-          .map((l) => l.trim())
-          .filter(Boolean)
-          .map((l) => {
-            const m = l.match(/^(BIAS|APPROACH|CAREFUL):\s*(.*)$/);
-            return m ? { label: m[1], text: m[2] } : { label: "", text: l };
-          });
-        acc.push({ name: part, lines });
-        return acc;
-      }, []);
-  }, [summary]);
+  async function generate(only?: string) {
+    setSummaryError(null);
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session) {
+      setSummaryError("You need to be signed in.");
+      return;
+    }
+    const targets = only ? [only] : [...WATCHLIST];
+    setResults((r) => {
+      const next = { ...r };
+      for (const t of targets) next[t] = { loading: true };
+      return next;
+    });
+    const context = await buildContext();
+    await Promise.all(targets.map((t) => runOne(t, context, session.access_token, weekOf)));
+  }
+
+  function parseResult(text: string) {
+    return text
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => {
+        const m = l.match(/^(BIAS|APPROACH|CAREFUL):\s*(.*)$/);
+        return m ? { label: m[1], text: m[2] } : { label: "", text: l };
+      });
+  }
 
   return (
     <div className="space-y-6">
@@ -529,6 +539,54 @@ export default function WeeklyBiasPage() {
                 rows={6}
                 className="w-full rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm"
               />
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <input
+                  placeholder="H4 chart link (TradingView share link)"
+                  value={e.chart_h4}
+                  onChange={(ev) => updateWeekly(instrument, "chart_h4", ev.target.value)}
+                  className="w-full rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm"
+                />
+                <input
+                  placeholder="15m chart link (TradingView share link)"
+                  value={e.chart_15m}
+                  onChange={(ev) => updateWeekly(instrument, "chart_15m", ev.target.value)}
+                  className="w-full rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm"
+                />
+              </div>
+              <div className="mt-3 rounded border border-neutral-800 bg-neutral-900 p-3">
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-xs font-medium text-neutral-400">
+                    AI: for the week of {weekOf}, how should I trade {instrument}?
+                  </span>
+                  <button
+                    onClick={() => generate(instrument)}
+                    disabled={anyLoading}
+                    className="rounded border border-neutral-700 px-2 py-0.5 text-xs text-neutral-300 disabled:opacity-50"
+                  >
+                    {results[instrument]?.loading ? "Generating…" : results[instrument] ? "Redo" : "Ask AI"}
+                  </button>
+                </div>
+                {results[instrument]?.loading && <p className="text-sm text-neutral-500">Reading price and charts…</p>}
+                {results[instrument]?.error && <p className="text-sm text-amber-300">{results[instrument]?.error}</p>}
+                {results[instrument]?.text && (
+                  <div className="space-y-1">
+                    {parseResult(results[instrument]!.text!).map((l, i) => (
+                      <p key={i} className="text-sm text-neutral-200">
+                        {l.label && <span className="mr-2 text-xs font-medium text-neutral-500">{l.label}</span>}
+                        {l.text}
+                      </p>
+                    ))}
+                    {results[instrument]?.charts?.some((c) => c.includes("NOT loaded")) && (
+                      <p className="text-xs text-amber-400">
+                        {results[instrument]!.charts!.filter((c) => c.includes("NOT loaded")).join(" · ")}
+                      </p>
+                    )}
+                  </div>
+                )}
+                {!results[instrument] && (
+                  <p className="text-xs text-neutral-600">Click “Generate AI summary” or “Ask AI” for this pair.</p>
+                )}
+              </div>
             </div>
           );
         })}
@@ -543,11 +601,11 @@ export default function WeeklyBiasPage() {
           {savingWeek ? "Saving…" : `Save Week ${selectedWeekIdx + 1}`}
         </button>
         <button
-          onClick={generateSummary}
-          disabled={summaryLoading}
+          onClick={() => generate()}
+          disabled={anyLoading}
           className="rounded border border-neutral-700 px-4 py-2 text-sm font-medium disabled:opacity-50"
         >
-          {summaryLoading ? "Generating…" : "Generate AI summary"}
+          {anyLoading ? "Generating…" : "Generate AI summary"}
         </button>
       </div>
 
@@ -557,29 +615,6 @@ export default function WeeklyBiasPage() {
         </div>
       )}
 
-      {summary && (
-        <div className="space-y-3">
-          <h2 className="text-sm font-medium text-neutral-400">
-            For the week of {summaryWeek}: how should I trade it?
-          </h2>
-          {summaryBlocks.length === 0 ? (
-            <p className="whitespace-pre-wrap text-sm text-neutral-200">{summary}</p>
-          ) : (
-            summaryBlocks.map((b) => (
-              <div key={b.name} className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
-                <div className="mb-1 font-medium">{b.name}</div>
-                <PriceLine instrument={b.name} price={prices?.[b.name]} />
-                {b.lines.map((l, i) => (
-                  <p key={i} className="text-sm text-neutral-200">
-                    {l.label && <span className="mr-2 text-xs font-medium text-neutral-500">{l.label}</span>}
-                    {l.text}
-                  </p>
-                ))}
-              </div>
-            ))
-          )}
-        </div>
-      )}
     </div>
   );
 }
