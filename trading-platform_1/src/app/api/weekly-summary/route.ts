@@ -1,76 +1,44 @@
 import { NextResponse } from "next/server";
+import { askClaude, requireUser } from "@/lib/anthropic";
 
-// Calls the Anthropic API to explain the week's biases in plain language.
-// This reads your own entered bias/notes and explains it back to you — it
-// never invents market data or generates a buy/sell signal on its own.
-// Get a key at https://console.anthropic.com (separate from claude.ai).
+export const maxDuration = 60;
 
-type Entry = {
-  instrument: string;
-  bias: string;
-  key_levels: string;
-  notes: string;
-};
+const SYSTEM = `You are the News Analyst on a retail trader's personal trading desk. For ONE specific week, you answer a single question for each of their instruments: "For this week, how should I trade it?"
+
+RULES
+- Use ONLY the WEEK PACK you are given. Do not add facts, prices, levels, events or headlines from memory.
+- The pack names the exact week. Everything you write is about that week only. If the pack says calendar data is not available for that week, say so once and do not talk about events.
+- Start each claim with one tag: [FACT] (taken directly from the pack), [DATA] (a number or date from the pack), [INTERPRETATION] (your reading), or [SCENARIO] (an if/then possibility).
+- Never tell the trader to buy or sell, and never give entries, stops or price targets. "How to trade it" means conditions: which of the trader's own levels and notes matter, when to be careful (event windows, only if in the pack), what would invalidate the bias, and what the trader's own plan would need to see.
+- BIAS comes from the trader's own entry. If the pack says "No view entered", write "No view entered" and do not invent one.
+- Each instrument gets exactly three lines (BIAS, APPROACH, CAREFUL), each under 30 words.
+- Plain text only: no markdown, no asterisks, no pound signs.
+
+FORMAT (follow exactly)
+=== EUR/USD ===
+BIAS: <Bullish | Bearish | Neutral | No view entered> - <short reason with a tag>
+APPROACH: <how to trade the week, in conditions, with a tag>
+CAREFUL: <what to watch or what invalidates the bias, with a tag>
+
+Repeat for every instrument in the pack, in the order given, each starting with its own === NAME === line.`;
 
 export async function POST(req: Request) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "ANTHROPIC_API_KEY is not set. Add it to your hosting environment." },
-      { status: 500 }
-    );
-  }
+  const auth = await requireUser(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  const { weekOf, entries } = (await req.json()) as { weekOf: string; entries: Entry[] };
-
-  const bullets = entries
-    .map(
-      (e) =>
-        `- ${e.instrument}: ${e.bias}${e.key_levels ? ` | levels: ${e.key_levels}` : ""}${
-          e.notes ? ` | notes: ${e.notes}` : ""
-        }`
-    )
-    .join("\n");
-
-  const prompt = `You are summarizing a trader's own weekly bias notes for the week of ${weekOf}. Here is exactly what they entered for each instrument:
-
-${bullets}
-
-Write a short, clear plain-language summary (4-6 sentences) that:
-- Restates their bias per instrument in their own terms, not invented data
-- Notes any instruments where their bias and key levels seem to conflict or are worth double-checking
-- Does NOT add new market data, price levels, or opinions they didn't provide
-- Does NOT suggest trades or give buy/sell instructions — just clarify and organize what they wrote
-
-Keep it grounded strictly in what they entered.`;
-
+  let body: { weekOf?: string; pack?: string };
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-5",
-        max_tokens: 500,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      return NextResponse.json(
-        { error: `Anthropic API returned ${res.status}: ${text.slice(0, 200)}` },
-        { status: 502 }
-      );
-    }
-
-    const data = await res.json();
-    const summary = data.content?.[0]?.text ?? "No summary returned.";
-    return NextResponse.json({ summary });
+    body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Failed to reach Anthropic API" }, { status: 502 });
+    return NextResponse.json({ error: "Bad request." }, { status: 400 });
   }
+  const weekOf = (body.weekOf ?? "").slice(0, 10);
+  const pack = (body.pack ?? "").slice(0, 25000);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(weekOf) || !pack) {
+    return NextResponse.json({ error: "Missing week or data." }, { status: 400 });
+  }
+
+  const result = await askClaude(SYSTEM, `WEEK: week starting Monday ${weekOf}\n\nWEEK PACK:\n${pack}`, 4000);
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 502 });
+  return NextResponse.json({ summary: result.text });
 }
