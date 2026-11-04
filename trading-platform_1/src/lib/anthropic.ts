@@ -20,7 +20,12 @@ export async function requireUser(req: Request) {
   return { ok: true as const, userId: data.user.id };
 }
 
-export async function askClaude(system: string, user: string, maxTokens = 1500) {
+export async function askClaude(
+  system: string,
+  user: string,
+  maxTokens = 1500,
+  images: { media_type: string; label?: string; data: string }[] = []
+) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return { ok: false as const, error: "ANTHROPIC_API_KEY is not set." };
   try {
@@ -35,7 +40,21 @@ export async function askClaude(system: string, user: string, maxTokens = 1500) 
         model: MODEL,
         max_tokens: maxTokens,
         system,
-        messages: [{ role: "user", content: user }],
+        messages: [
+          {
+            role: "user",
+            content:
+              images.length === 0
+                ? user
+                : [
+                    ...images.flatMap((im) => [
+                      ...(im.label ? [{ type: "text", text: im.label }] : []),
+                      { type: "image", source: { type: "base64", media_type: im.media_type, data: im.data } },
+                    ]),
+                    { type: "text", text: user },
+                  ],
+          },
+        ],
       }),
     });
     if (!res.ok) {
