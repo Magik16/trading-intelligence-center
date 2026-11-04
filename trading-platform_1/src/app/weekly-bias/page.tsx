@@ -90,6 +90,7 @@ export default function WeeklyBiasPage() {
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryWeek, setSummaryWeek] = useState<string | null>(null);
 
   // When month changes, recompute its weeks and jump to the week containing
   // today if this is the current month, else Week 1.
@@ -214,25 +215,105 @@ export default function WeeklyBiasPage() {
     setSavingMonth(false);
   }
 
+  async function buildPack(): Promise<string> {
+    const isCurrent = weekOf === mondayOf(new Date());
+    const monthLabel = months.find((m) => m.value === selectedMonth)?.label ?? selectedMonth;
+    const lines: string[] = [];
+    lines.push(`== TRADER'S WEEKLY ENTRIES (week starting ${weekOf}) ==`);
+    for (const w of WATCHLIST) {
+      const e = weekly[w];
+      const empty = e.bias === "Neutral" && !e.key_levels.trim() && !e.notes.trim();
+      if (empty) lines.push(`${w}: No view entered`);
+      else lines.push(`${w}: bias ${e.bias} | levels: ${e.key_levels || "none"} | notes: ${e.notes || "none"}`);
+    }
+    lines.push("", `== TRADER'S MONTHLY OUTLOOK (${monthLabel}) ==`);
+    for (const w of WATCHLIST) {
+      const m = monthly[w];
+      const empty = m.bias === "Neutral" && !m.notes.trim();
+      lines.push(empty ? `${w}: No view entered` : `${w}: ${m.bias} | ${m.notes || "no notes"}`);
+    }
+    lines.push("", "== ECONOMIC CALENDAR (USD, EUR, GBP; high and medium impact) ==");
+    if (!isCurrent) {
+      lines.push(`Calendar data is only available for the current week, not for the week of ${weekOf}. Do not mention any events.`);
+    } else {
+      try {
+        const cal = await fetch("/api/calendar").then((r) => r.json());
+        type Ev = { title: string; country: string; date: string; impact: string; forecast: string | null; previous: string | null };
+        const events = ((cal.events ?? []) as Ev[])
+          .filter((e) => ["USD", "EUR", "GBP"].includes(e.country))
+          .filter((e) => ["high", "medium"].includes((e.impact ?? "").toLowerCase()))
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+          .slice(0, 60);
+        if (events.length === 0) lines.push("(no events)");
+        for (const e of events) {
+          lines.push(`${new Date(e.date).toLocaleString()} | ${e.country} | ${e.impact} | ${e.title} | previous ${e.previous || "-"} | forecast ${e.forecast || "-"}`);
+        }
+      } catch {
+        lines.push("(calendar unavailable)");
+      }
+    }
+    const { data: plans } = await supabase.from("trading_plans").select("name,style,markets,sessions,rules").limit(3);
+    lines.push("", "== TRADER'S TRADING PLAN ==");
+    if (!plans || plans.length === 0) lines.push("No trading plan entered.");
+    else for (const p of plans) lines.push(JSON.stringify(p).slice(0, 1500));
+    return lines.join("\n");
+  }
+
   async function generateSummary() {
     setSummaryLoading(true);
     setSummaryError(null);
     setSummary(null);
+    const forWeek = weekOf;
     try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) {
+        setSummaryError("You need to be signed in.");
+        return;
+      }
+      const pack = await buildPack();
       const res = await fetch("/api/weekly-summary", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ weekOf, entries: Object.values(weekly) }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ weekOf: forWeek, pack }),
       });
       const data = await res.json();
       if (data.error) setSummaryError(data.error);
-      else setSummary(data.summary);
+      else {
+        setSummary(data.summary);
+        setSummaryWeek(forWeek);
+      }
     } catch {
       setSummaryError("Failed to generate summary");
     } finally {
       setSummaryLoading(false);
     }
   }
+
+  const summaryBlocks = useMemo(() => {
+    if (!summary) return [];
+    return summary
+      .split(/^=== (.+?) ===\s*$/m)
+      .slice(1)
+      .reduce<{ name: string; lines: { label: string; text: string }[] }[]>((acc, part, i, arr) => {
+        if (i % 2 === 1) return acc;
+        const body = arr[i + 1] ?? "";
+        const lines = body
+          .split("\n")
+          .map((l) => l.trim())
+          .filter(Boolean)
+          .map((l) => {
+            const m = l.match(/^(BIAS|APPROACH|CAREFUL):\s*(.*)$/);
+            return m ? { label: m[1], text: m[2] } : { label: "", text: l };
+          });
+        acc.push({ name: part, lines });
+        return acc;
+      }, []);
+  }, [summary]);
 
   return (
     <div className="space-y-6">
@@ -403,11 +484,25 @@ export default function WeeklyBiasPage() {
       )}
 
       {summary && (
-        <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
-          <h2 className="mb-2 text-sm font-medium text-neutral-400">
-            AI summary of this week
+        <div className="space-y-3">
+          <h2 className="text-sm font-medium text-neutral-400">
+            For the week of {summaryWeek}: how should I trade it?
           </h2>
-          <p className="whitespace-pre-wrap text-sm text-neutral-200">{summary}</p>
+          {summaryBlocks.length === 0 ? (
+            <p className="whitespace-pre-wrap text-sm text-neutral-200">{summary}</p>
+          ) : (
+            summaryBlocks.map((b) => (
+              <div key={b.name} className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+                <div className="mb-2 font-medium">{b.name}</div>
+                {b.lines.map((l, i) => (
+                  <p key={i} className="text-sm text-neutral-200">
+                    {l.label && <span className="mr-2 text-xs font-medium text-neutral-500">{l.label}</span>}
+                    {l.text}
+                  </p>
+                ))}
+              </div>
+            ))
+          )}
         </div>
       )}
     </div>
