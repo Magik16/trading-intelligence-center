@@ -58,6 +58,41 @@ function weeksInMonth(monthValue: string): string[] {
   return Array.from(mondays).sort();
 }
 
+type Price =
+  | { available: false; reason: string }
+  | {
+      available: true;
+      weekOpen: number;
+      latest: number;
+      latestDate: string;
+      high: number;
+      low: number;
+      prevWeekClose: number | null;
+      changePct: number;
+    };
+
+function fmt(instrument: string, n: number): string {
+  const d = instrument === "EUR/USD" || instrument === "GBP/USD" ? 5 : instrument === "DXY" ? 3 : 2;
+  return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
+function PriceLine({ instrument, price }: { instrument: string; price?: Price }) {
+  if (!price) return <p className="mb-2 text-xs text-neutral-600">Loading price…</p>;
+  if (!price.available)
+    return <p className="mb-2 text-xs text-neutral-600">Price: unavailable ({price.reason})</p>;
+  const up = price.changePct >= 0;
+  return (
+    <p className="mb-2 text-xs text-neutral-400">
+      <span className="text-neutral-200">{fmt(instrument, price.latest)}</span> (close {price.latestDate}) · week open{" "}
+      {fmt(instrument, price.weekOpen)} · high {fmt(instrument, price.high)} · low {fmt(instrument, price.low)} ·{" "}
+      <span className={up ? "text-green-400" : "text-red-400"}>
+        {up ? "+" : ""}
+        {price.changePct.toFixed(2)}%
+      </span>
+    </p>
+  );
+}
+
 function emptyWeekly(): Record<string, WeeklyEntry> {
   return Object.fromEntries(
     WATCHLIST.map((w) => [w, { instrument: w, bias: "Neutral" as const, key_levels: "", notes: "" }])
@@ -91,6 +126,7 @@ export default function WeeklyBiasPage() {
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryWeek, setSummaryWeek] = useState<string | null>(null);
+  const [prices, setPrices] = useState<Record<string, Price> | null>(null);
 
   // When month changes, recompute its weeks and jump to the week containing
   // today if this is the current month, else Week 1.
@@ -151,6 +187,33 @@ export default function WeeklyBiasPage() {
   useEffect(() => {
     loadWeek(weekOf);
   }, [weekOf, loadWeek]);
+
+  // Real prices for the selected week (never estimated; shows "unavailable" if the source fails).
+  useEffect(() => {
+    if (!weekOf) return;
+    let cancelled = false;
+    setPrices(null);
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) return;
+      try {
+        const res = await fetch("/api/week-prices", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ weekOf }),
+        });
+        const data = await res.json();
+        if (!cancelled && data.prices) setPrices(data.prices);
+      } catch {
+        /* leave as loading/unavailable */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [weekOf, supabase]);
 
   useEffect(() => {
     loadMonth(selectedMonth);
@@ -225,6 +288,16 @@ export default function WeeklyBiasPage() {
       const empty = e.bias === "Neutral" && !e.key_levels.trim() && !e.notes.trim();
       if (empty) lines.push(`${w}: No view entered`);
       else lines.push(`${w}: bias ${e.bias} | levels: ${e.key_levels || "none"} | notes: ${e.notes || "none"}`);
+    }
+    lines.push("", `== REAL PRICES FOR THE WEEK OF ${weekOf} (daily data, Yahoo Finance; only prices in this section are real) ==`);
+    for (const w of WATCHLIST) {
+      const p = prices?.[w];
+      if (!p) lines.push(`${w}: price not loaded`);
+      else if (!p.available) lines.push(`${w}: price unavailable (${p.reason})`);
+      else
+        lines.push(
+          `${w}: week open ${fmt(w, p.weekOpen)} | latest close ${fmt(w, p.latest)} on ${p.latestDate} | week high ${fmt(w, p.high)} | week low ${fmt(w, p.low)} | prior week close ${p.prevWeekClose == null ? "n/a" : fmt(w, p.prevWeekClose)} | change ${p.changePct.toFixed(2)}%`
+        );
     }
     lines.push("", `== TRADER'S MONTHLY OUTLOOK (${monthLabel}) ==`);
     for (const w of WATCHLIST) {
@@ -442,6 +515,7 @@ export default function WeeklyBiasPage() {
                   <option>Neutral</option>
                 </select>
               </div>
+              <PriceLine instrument={instrument} price={prices?.[instrument]} />
               <input
                 placeholder="Key levels (support / resistance)"
                 value={e.key_levels}
@@ -493,7 +567,8 @@ export default function WeeklyBiasPage() {
           ) : (
             summaryBlocks.map((b) => (
               <div key={b.name} className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
-                <div className="mb-2 font-medium">{b.name}</div>
+                <div className="mb-1 font-medium">{b.name}</div>
+                <PriceLine instrument={b.name} price={prices?.[b.name]} />
                 {b.lines.map((l, i) => (
                   <p key={i} className="text-sm text-neutral-200">
                     {l.label && <span className="mr-2 text-xs font-medium text-neutral-500">{l.label}</span>}
