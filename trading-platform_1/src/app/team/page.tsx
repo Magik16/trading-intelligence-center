@@ -42,26 +42,29 @@ async function buildDataPack(supabase: Db, weekOf: string): Promise<string> {
   const now = new Date();
   const monthValue = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
-  const [cal, macro, strength, bias, monthBias] = await Promise.all([
+  const [cal, macro, strength, bias, monthBias, plans] = await Promise.all([
     fetch("/api/calendar").then((r) => r.json()).catch(() => ({ error: "calendar unavailable" })),
     fetch("/api/macro").then((r) => r.json()).catch(() => ({ error: "macro data unavailable" })),
     fetch("/api/weekly-strength").then((r) => r.json()).catch(() => ({ error: "weekly strength unavailable" })),
     supabase.from("weekly_bias").select("instrument,bias,key_levels,notes").eq("week_of", weekOf),
     supabase.from("monthly_bias").select("instrument,bias,notes").eq("month", monthValue),
+    supabase.from("trading_plans").select("name,style,markets,sessions,rules"),
   ]);
 
   const lines: string[] = [];
   lines.push(`TODAY: ${now.toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" })}`);
   lines.push(`WEEK OF (Monday): ${weekOf}`);
   lines.push("All times below are in the trader's local time zone.");
+  lines.push("THE TRADER'S INSTRUMENTS: EUR/USD, GBP/USD, DXY, GOLD, USOIL, NASDAQ, S&P 500, US30, BTC");
 
   // Calendar
-  lines.push("", "== ECONOMIC CALENDAR (this week, high and medium impact only) ==");
+  lines.push("", "== ECONOMIC CALENDAR (this week; USD, EUR and GBP events; high and medium impact only) ==");
   if (cal.error) {
     lines.push(`(unavailable: ${cal.error})`);
   } else {
     type Ev = { title: string; country: string; date: string; impact: string; forecast: string | null; previous: string | null; actual: string | null };
     const events = ((cal.events ?? []) as Ev[])
+      .filter((e) => ["USD", "EUR", "GBP"].includes(e.country))
       .filter((e) => ["high", "medium"].includes((e.impact ?? "").toLowerCase()))
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
       .slice(0, 70);
@@ -119,6 +122,18 @@ async function buildDataPack(supabase: Db, weekOf: string): Promise<string> {
     lines.push(`- ${r.instrument}: ${r.bias}${r.key_levels ? ` | levels: ${r.key_levels}` : ""}${r.notes ? ` | notes: ${r.notes}` : ""}`);
   }
 
+  // Trading plan
+  lines.push("", "== THE TRADER'S TRADING PLAN(S) (their own rules) ==");
+  type Plan = { name: string; style: string | null; markets: string[] | null; sessions: string[] | null; rules: { free_text?: string } | null };
+  const ps = ((plans.data ?? []) as Plan[]).slice(0, 3);
+  if (ps.length === 0) lines.push("- no plan entered");
+  for (const p of ps) {
+    const rules = (p.rules?.free_text ?? "").trim().slice(0, 700);
+    lines.push(
+      `- ${p.name} (${p.style ?? "style n/a"}; markets: ${(p.markets ?? []).join(", ") || "n/a"}; sessions: ${(p.sessions ?? []).join(", ") || "n/a"})${rules ? ` | rules: ${rules}` : ""}`
+    );
+  }
+
   // Gaps
   lines.push(
     "",
@@ -126,9 +141,41 @@ async function buildDataPack(supabase: Db, weekOf: string): Promise<string> {
     "- No live news headlines are included; only the calendar, US macro data, weekly price moves and the trader's notes.",
     "- No price data for GOLD is included; only the trader's own notes if they wrote any.",
     "- EUR/USD, GBP/USD and the USD index update a week late, so their latest week may be missing.",
-    "- Macro data is US only; there is no EUR or GBP macro data in this pack."
+    "- Macro data is US only; there is no EUR or GBP macro data in this pack.",
+    "- The calendar only includes USD, EUR and GBP events; events for other currencies are not included."
   );
   return lines.join("\n");
+}
+
+type PairBlock = { name: string; fields: { label: string; text: string }[]; bias: string | null };
+
+// Turns the analyst's "=== NAME ===" blocks into cards. Returns null if the format isn't followed,
+// in which case the page falls back to showing the plain text.
+function parseResume(text: string): { intro: string; pairs: PairBlock[]; tail: string } | null {
+  const tailIdx = text.search(/^NOT VERIFIED/m);
+  const main = tailIdx >= 0 ? text.slice(0, tailIdx) : text;
+  const tail = tailIdx >= 0 ? text.slice(tailIdx).trim() : "";
+  const parts = main.split(/^===\s*(.+?)\s*===\s*$/m);
+  if (parts.length < 7) return null; // need at least 3 instruments
+  const pairs: PairBlock[] = [];
+  for (let i = 1; i < parts.length; i += 2) {
+    const fields: { label: string; text: string }[] = [];
+    for (const line of (parts[i + 1] ?? "").split("\n")) {
+      const m = line.match(/^(BIAS|APPROACH|CAREFUL):\s*(.*)$/);
+      if (m) fields.push({ label: m[1], text: m[2].trim() });
+      else if (line.trim() && fields.length) fields[fields.length - 1].text += " " + line.trim();
+    }
+    const bias = fields.find((f) => f.label === "BIAS")?.text.match(/^(bullish|bearish|neutral|no view)/i);
+    pairs.push({ name: parts[i].trim(), fields, bias: bias ? bias[1] : null });
+  }
+  return { intro: parts[0].trim(), pairs, tail };
+}
+
+function biasColor(bias: string): string {
+  const b = bias.toLowerCase();
+  if (b.startsWith("bullish")) return "bg-green-900 text-green-200";
+  if (b.startsWith("bearish")) return "bg-red-900 text-red-200";
+  return "bg-neutral-800 text-neutral-300";
 }
 
 async function callAgent(
@@ -299,6 +346,7 @@ export default function TeamPage() {
       ? "Team manager is reviewing the briefing…"
       : "";
 
+  const resume = report?.analyst ? parseResume(report.analyst) : null;
   const verdict = report?.manager ? verdictOf(report.manager) : null;
   const managerBody = report?.manager ? report.manager.replace(/^VERDICT:.*\n?/im, "").trim() : "";
 
@@ -307,7 +355,7 @@ export default function TeamPage() {
       <div>
         <h1 className="text-xl font-medium">Your team</h1>
         <p className="text-sm text-neutral-500">
-          A News analyst writes this week&apos;s briefing, then a Team manager checks it against the data.
+          The News analyst gives you a quick resume for each instrument, then the Team manager checks it against the data.
         </p>
       </div>
 
@@ -352,9 +400,36 @@ export default function TeamPage() {
             {savedAt ? ` · saved ${localStamp(savedAt)}` : ""}
           </p>
 
-          <AgentCard title="News analyst" subtitle="Weekly briefing from the data pack below">
+          <AgentCard title="News analyst" subtitle="Quick resume: how to approach each instrument this week">
             {report.analyst ? (
-              <p className="whitespace-pre-wrap text-sm text-neutral-200">{report.analyst}</p>
+              resume ? (
+                <div className="space-y-4">
+                  {resume.intro && <p className="whitespace-pre-wrap text-sm text-neutral-200">{resume.intro}</p>}
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {resume.pairs.map((p) => (
+                      <div key={p.name} className="rounded border border-neutral-800 p-3">
+                        <div className="mb-2 flex items-center justify-between">
+                          <span className="text-sm font-medium text-neutral-100">{p.name}</span>
+                          {p.bias && (
+                            <span className={`rounded px-2 py-0.5 text-xs ${biasColor(p.bias)}`}>{p.bias}</span>
+                          )}
+                        </div>
+                        <div className="space-y-1.5 text-xs">
+                          {p.fields.map((f, i) => (
+                            <p key={i} className="text-neutral-300">
+                              <span className="mr-1 font-medium uppercase text-neutral-500">{f.label}</span>
+                              {f.text}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {resume.tail && <p className="whitespace-pre-wrap text-xs text-neutral-500">{resume.tail}</p>}
+                </div>
+              ) : (
+                <p className="whitespace-pre-wrap text-sm text-neutral-200">{report.analyst}</p>
+              )
             ) : (
               <p className="text-sm text-neutral-500">Writing…</p>
             )}
