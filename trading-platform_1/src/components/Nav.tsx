@@ -11,6 +11,7 @@ const links = [
   { href: "/weekly-bias", label: "Weekly bias" },
   { href: "/strength", label: "Weekly strength" },
   { href: "/team", label: "Team" },
+  { href: "/chat", label: "Desk chat" },
   { href: "/plan", label: "Trading plan" },
   { href: "/journal", label: "Journal" },
   { href: "/risk", label: "Risk calculator" },
