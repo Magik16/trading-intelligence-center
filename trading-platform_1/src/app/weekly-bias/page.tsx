@@ -128,6 +128,34 @@ function ictLines(instrument: string, p: Price | undefined, weekOf: string): str
   return lines;
 }
 
+
+// TradingView share links (tradingview.com/x/ID/) have a public snapshot image we can preview.
+function tvImageUrl(link: string): string | null {
+  const m = link.trim().match(/tradingview\.com\/x\/([A-Za-z0-9]+)/);
+  return m ? `https://s3.tradingview.com/snapshots/${m[1][0].toLowerCase()}/${m[1]}.png` : null;
+}
+
+function ChartThumb({ label, link, onOpen }: { label: string; link: string; onOpen: (src: string) => void }) {
+  const [failed, setFailed] = useState(false);
+  const src = tvImageUrl(link);
+  useEffect(() => setFailed(false), [link]);
+  if (!src) return <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-white/10 text-xs text-neutral-600">{label}: no chart yet</div>;
+  if (failed)
+    return (
+      <a href={link} target="_blank" rel="noreferrer" className="flex h-24 items-center justify-center rounded-lg border border-white/10 text-xs text-blue-400 underline">
+        {label}: preview not available, open the chart
+      </a>
+    );
+  return (
+    <button type="button" onClick={() => onOpen(src)} className="group relative block overflow-hidden rounded-lg border border-white/10 text-left">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt={`${label} chart`} onError={() => setFailed(true)} className="h-auto w-full" loading="lazy" />
+      <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-0.5 text-[11px] font-medium text-white">{label}</span>
+      <span className="absolute bottom-2 right-2 rounded-full bg-black/70 px-2 py-0.5 text-[11px] text-neutral-300 opacity-0 transition-opacity group-hover:opacity-100">Click to enlarge</span>
+    </button>
+  );
+}
+
 function emptyWeekly(): Record<string, WeeklyEntry> {
   return Object.fromEntries(
     WATCHLIST.map((w) => [w, { instrument: w, bias: "Neutral" as const, key_levels: "", notes: "", chart_h4: "", chart_15m: "" }])
@@ -157,6 +185,7 @@ export default function WeeklyBiasPage() {
   const [error, setError] = useState<string | null>(null);
   const [savingWeek, setSavingWeek] = useState(false);
   const [savingMonth, setSavingMonth] = useState(false);
+  const [lightbox, setLightbox] = useState<string | null>(null);
   const [saveMsg, setSaveMsg] = useState<{ scope: "week" | "month"; ok: boolean; text: string } | null>(null);
   type AiResult = { loading: boolean; text?: string; error?: string; charts?: string[]; at?: string; storeError?: string };
   const [results, setResults] = useState<Record<string, AiResult>>({});
@@ -649,6 +678,12 @@ export default function WeeklyBiasPage() {
                   />
                 </div>
               </div>
+              {(e.chart_h4.trim() || e.chart_15m.trim()) && (
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <ChartThumb label="H4" link={e.chart_h4} onOpen={setLightbox} />
+                  <ChartThumb label="15min" link={e.chart_15m} onOpen={setLightbox} />
+                </div>
+              )}
               <div className="mt-3 rounded border border-neutral-800 bg-neutral-900 p-3">
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-xs font-medium text-neutral-400">
@@ -731,6 +766,15 @@ export default function WeeklyBiasPage() {
         </div>
       )}
 
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[60] flex cursor-zoom-out items-center justify-center bg-black/85 p-4"
+          onClick={() => setLightbox(null)}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={lightbox} alt="Chart enlarged" className="max-h-full max-w-full rounded-lg" />
+        </div>
+      )}
     </div>
   );
 }
