@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { createClient } from "@/lib/supabase";
 import { WATCHLIST } from "@/lib/types";
 
@@ -158,7 +158,7 @@ export default function WeeklyBiasPage() {
   const [savingWeek, setSavingWeek] = useState(false);
   const [savingMonth, setSavingMonth] = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ scope: "week" | "month"; ok: boolean; text: string } | null>(null);
-  type AiResult = { loading: boolean; text?: string; error?: string; charts?: string[] };
+  type AiResult = { loading: boolean; text?: string; error?: string; charts?: string[]; at?: string; storeError?: string };
   const [results, setResults] = useState<Record<string, AiResult>>({});
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const anyLoading = Object.values(results).some((r) => r.loading);
@@ -175,6 +175,8 @@ export default function WeeklyBiasPage() {
   }, [selectedMonth]);
 
   const weekOf = weekOptions[selectedWeekIdx] ?? weekOptions[0];
+  const weekRef = useRef(weekOf);
+  weekRef.current = weekOf;
 
   const loadWeek = useCallback(
     (week: string) => {
@@ -182,6 +184,27 @@ export default function WeeklyBiasPage() {
       setWeekly(emptyWeekly());
       setResults({});
       setSaveMsg(null);
+      // Saved AI answers for this week come back automatically.
+      supabase
+        .from("weekly_ai_reads")
+        .select("instrument,content,charts,updated_at")
+        .eq("week_of", week)
+        .then(({ data, error }) => {
+          if (error || !data || week !== weekRef.current) return;
+          setResults((prev) => {
+            const next = { ...prev };
+            for (const row of data) {
+              if (next[row.instrument]?.loading) continue;
+              next[row.instrument] = {
+                loading: false,
+                text: row.content,
+                charts: Array.isArray(row.charts) ? row.charts : [],
+                at: row.updated_at,
+              };
+            }
+            return next;
+          });
+        });
       supabase
         .from("weekly_bias")
         .select("*")
@@ -392,7 +415,7 @@ export default function WeeklyBiasPage() {
     return lines.join("\n");
   }
 
-  async function runOne(instrument: string, context: string, token: string, forWeek: string) {
+  async function runOne(instrument: string, context: string, token: string, userId: string, forWeek: string) {
     setResults((r) => ({ ...r, [instrument]: { loading: true } }));
     const e = weekly[instrument];
     const entered = e.bias !== "Neutral";
@@ -415,12 +438,33 @@ export default function WeeklyBiasPage() {
         }),
       });
       const data = await res.json();
-      setResults((r) => ({
-        ...r,
-        [instrument]: data.error ? { loading: false, error: data.error } : { loading: false, text: data.text, charts: data.charts },
-      }));
+      if (data.error) {
+        if (forWeek === weekRef.current) setResults((r) => ({ ...r, [instrument]: { loading: false, error: data.error } }));
+        return;
+      }
+      const at = new Date().toISOString();
+      // Keep the answer: store it so it survives changing week, page or reloading.
+      const { error: storeErr } = await supabase.from("weekly_ai_reads").upsert(
+        { user_id: userId, week_of: forWeek, instrument, content: data.text, charts: data.charts ?? [], updated_at: at },
+        { onConflict: "user_id,week_of,instrument" }
+      );
+      if (forWeek === weekRef.current)
+        setResults((r) => ({
+          ...r,
+          [instrument]: {
+            loading: false,
+            text: data.text,
+            charts: data.charts,
+            at,
+            storeError: storeErr
+              ? /weekly_ai_reads/.test(storeErr.message)
+                ? "Answer not stored: the weekly_ai_reads table is missing in Supabase. Run the SQL I gave you, then click Ask AI again."
+                : `Answer not stored: ${storeErr.message}`
+              : undefined,
+          },
+        }));
     } catch {
-      setResults((r) => ({ ...r, [instrument]: { loading: false, error: "Failed to generate." } }));
+      if (forWeek === weekRef.current) setResults((r) => ({ ...r, [instrument]: { loading: false, error: "Failed to generate." } }));
     }
   }
 
@@ -440,7 +484,7 @@ export default function WeeklyBiasPage() {
       return next;
     });
     const context = await buildContext();
-    await Promise.all(targets.map((t) => runOne(t, context, session.access_token, weekOf)));
+    await Promise.all(targets.map((t) => runOne(t, context, session.access_token, session.user.id, weekOf)));
   }
 
   function parseResult(text: string) {
@@ -608,7 +652,7 @@ export default function WeeklyBiasPage() {
               <div className="mt-3 rounded border border-neutral-800 bg-neutral-900 p-3">
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-xs font-medium text-neutral-400">
-                    AI: for the week of {weekOf}, how should I trade {instrument}?
+                    AI: for the week of {weekOf}, how should I trade {instrument}?{results[instrument]?.at ? ` · saved ${new Date(results[instrument]!.at!).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}
                   </span>
                   <button
                     onClick={() => generate(instrument)}
@@ -620,6 +664,7 @@ export default function WeeklyBiasPage() {
                 </div>
                 {results[instrument]?.loading && <p className="text-sm text-neutral-500">Reading price and charts…</p>}
                 {results[instrument]?.error && <p className="text-sm text-amber-300">{results[instrument]?.error}</p>}
+                {results[instrument]?.storeError && <p className="text-xs text-amber-300">{results[instrument]?.storeError}</p>}
                 {results[instrument]?.text && (
                   <div className="space-y-3">
                     {parseResult(results[instrument]!.text!).map((l, i) => {
