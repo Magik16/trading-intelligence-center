@@ -34,7 +34,7 @@ function fmt(instrument: string, n: number): string {
 }
 
 const KICKOFF =
-  "Start the session. In ICT / supply and demand terms and under 110 words, give me your read of this instrument for this week: HTF bias, premium or discount, liquidity taken or not, what my chart shows if loaded, the news, and your lean (long, short or stay out) with conviction. Then ask for my view so we can argue it.";
+  "Start the session. In ICT / supply and demand terms, in 4 short lines and under 60 words, give me your read of this instrument for this week: HTF bias, premium or discount, liquidity taken or not, what my chart shows if loaded, the news, and your lean (long, short or stay out) with conviction. Then ask for my view so we can argue it.";
 
 export default function ChatWidget() {
   const supabase = createClient();
