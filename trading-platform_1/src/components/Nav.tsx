@@ -3,6 +3,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase";
+import ChatWidget from "@/components/ChatWidget";
 
 const links = [
   { href: "/dashboard", label: "Dashboard" },
@@ -11,7 +12,6 @@ const links = [
   { href: "/weekly-bias", label: "Weekly bias" },
   { href: "/strength", label: "Weekly strength" },
   { href: "/team", label: "Team" },
-  { href: "/chat", label: "Desk chat" },
   { href: "/plan", label: "Trading plan" },
   { href: "/journal", label: "Journal" },
   { href: "/risk", label: "Risk calculator" },
@@ -38,6 +38,7 @@ export default function Nav() {
   }
 
   return (
+    <>
     <nav className="flex items-center justify-between border-b border-neutral-800 bg-neutral-950 px-4 py-2">
       <div className="flex flex-wrap gap-1">
         {links.map((l) => (
@@ -75,5 +76,7 @@ export default function Nav() {
         )}
       </div>
     </nav>
+    {email && <ChatWidget />}
+    </>
   );
 }
