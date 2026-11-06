@@ -157,6 +157,7 @@ export default function WeeklyBiasPage() {
   const [error, setError] = useState<string | null>(null);
   const [savingWeek, setSavingWeek] = useState(false);
   const [savingMonth, setSavingMonth] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<{ scope: "week" | "month"; ok: boolean; text: string } | null>(null);
   type AiResult = { loading: boolean; text?: string; error?: string; charts?: string[] };
   const [results, setResults] = useState<Record<string, AiResult>>({});
   const [summaryError, setSummaryError] = useState<string | null>(null);
@@ -180,6 +181,7 @@ export default function WeeklyBiasPage() {
       if (!week) return;
       setWeekly(emptyWeekly());
       setResults({});
+      setSaveMsg(null);
       supabase
         .from("weekly_bias")
         .select("*")
@@ -269,57 +271,77 @@ export default function WeeklyBiasPage() {
     setMonthly((prev) => ({ ...prev, [instrument]: { ...prev[instrument], [field]: value } }));
   }
 
+  function friendlySaveError(message: string): string {
+    if (/chart_(h4|15m)/.test(message))
+      return "Not saved: the chart link columns are missing in Supabase. Run the 2 SQL lines (alter table weekly_bias add column if not exists chart_h4 text; ... chart_15m text;), then click Save again.";
+    return `Not saved: ${message}`;
+  }
+
+  function savedAt(): string {
+    return `Saved ✓ ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  }
+
   async function saveWeek() {
     setSavingWeek(true);
-    setError(null);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      setError("You need to be signed in to save.");
+    setSaveMsg(null);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        setSaveMsg({ scope: "week", ok: false, text: "Not saved: you need to be signed in. Sign in again." });
+        return;
+      }
+      const rows = Object.values(weekly).map((e) => ({
+        user_id: user.id,
+        week_of: weekOf,
+        instrument: e.instrument,
+        bias: e.bias,
+        key_levels: e.key_levels,
+        notes: e.notes,
+        chart_h4: e.chart_h4 || null,
+        chart_15m: e.chart_15m || null,
+      }));
+      const { error } = await supabase
+        .from("weekly_bias")
+        .upsert(rows, { onConflict: "user_id,week_of,instrument" });
+      if (error) setSaveMsg({ scope: "week", ok: false, text: friendlySaveError(error.message) });
+      else setSaveMsg({ scope: "week", ok: true, text: savedAt() });
+    } catch {
+      setSaveMsg({ scope: "week", ok: false, text: "Not saved: could not reach the server. Check your connection and try again." });
+    } finally {
       setSavingWeek(false);
-      return;
     }
-    const rows = Object.values(weekly).map((e) => ({
-      user_id: user.id,
-      week_of: weekOf,
-      instrument: e.instrument,
-      bias: e.bias,
-      key_levels: e.key_levels,
-      notes: e.notes,
-      chart_h4: e.chart_h4 || null,
-      chart_15m: e.chart_15m || null,
-    }));
-    const { error } = await supabase
-      .from("weekly_bias")
-      .upsert(rows, { onConflict: "user_id,week_of,instrument" });
-    if (error) setError(error.message);
-    setSavingWeek(false);
   }
 
   async function saveMonth() {
     setSavingMonth(true);
-    setError(null);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      setError("You need to be signed in to save.");
+    setSaveMsg(null);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        setSaveMsg({ scope: "month", ok: false, text: "Not saved: you need to be signed in. Sign in again." });
+        return;
+      }
+      const rows = Object.values(monthly).map((e) => ({
+        user_id: user.id,
+        month: selectedMonth,
+        instrument: e.instrument,
+        bias: e.bias,
+        notes: e.notes,
+      }));
+      const { error } = await supabase
+        .from("monthly_bias")
+        .upsert(rows, { onConflict: "user_id,month,instrument" });
+      if (error) setSaveMsg({ scope: "month", ok: false, text: friendlySaveError(error.message) });
+      else setSaveMsg({ scope: "month", ok: true, text: savedAt() });
+    } catch {
+      setSaveMsg({ scope: "month", ok: false, text: "Not saved: could not reach the server. Check your connection and try again." });
+    } finally {
       setSavingMonth(false);
-      return;
     }
-    const rows = Object.values(monthly).map((e) => ({
-      user_id: user.id,
-      month: selectedMonth,
-      instrument: e.instrument,
-      bias: e.bias,
-      notes: e.notes,
-    }));
-    const { error } = await supabase
-      .from("monthly_bias")
-      .upsert(rows, { onConflict: "user_id,month,instrument" });
-    if (error) setError(error.message);
-    setSavingMonth(false);
   }
 
   // Shared context for the selected week: real prices, calendar (current week only), outlook, plan.
@@ -514,6 +536,9 @@ export default function WeeklyBiasPage() {
             >
               {savingMonth ? "Saving…" : "Save monthly outlook"}
             </button>
+            {saveMsg?.scope === "month" && (
+              <span className={`ml-3 text-sm ${saveMsg.ok ? "text-green-400" : "text-red-400"}`}>{saveMsg.text}</span>
+            )}
           </div>
         )}
       </section>
@@ -635,7 +660,7 @@ export default function WeeklyBiasPage() {
         })}
       </div>
 
-      <div className="flex gap-3">
+      <div className="sticky bottom-4 z-30 flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-black/60 p-3 pr-20 backdrop-blur-xl">
         <button
           onClick={saveWeek}
           disabled={savingWeek}
@@ -650,6 +675,9 @@ export default function WeeklyBiasPage() {
         >
           {anyLoading ? "Generating…" : "Generate AI summary"}
         </button>
+        {saveMsg?.scope === "week" && (
+          <span className={`text-sm ${saveMsg.ok ? "text-green-400" : "text-red-400"}`}>{saveMsg.text}</span>
+        )}
       </div>
 
       {summaryError && (
