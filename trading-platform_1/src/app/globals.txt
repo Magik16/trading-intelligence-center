@@ -1,0 +1,151 @@
+@import "tailwindcss";
+
+:root {
+  --background: #05060b;
+  --foreground: #ececf1;
+  --accent: #f5b301;
+  --glass: rgba(255, 255, 255, 0.035);
+  --glass-strong: rgba(255, 255, 255, 0.06);
+  --line: rgba(255, 255, 255, 0.09);
+  --line-strong: rgba(255, 255, 255, 0.16);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+}
+
+/* ---------- Base: deep dusk gradient, like the reference ---------- */
+html {
+  background: var(--background);
+}
+body {
+  color: var(--foreground);
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  background:
+    radial-gradient(1100px 520px at 50% -8%, rgba(132, 108, 176, 0.34), transparent 70%),
+    radial-gradient(900px 420px at 85% 4%, rgba(214, 150, 96, 0.14), transparent 70%),
+    radial-gradient(800px 500px at 10% 100%, rgba(70, 90, 160, 0.12), transparent 70%),
+    var(--background);
+  background-attachment: fixed;
+}
+
+/* Serif display headings with the italic accent look */
+h1 {
+  font-family: "Instrument Serif", Georgia, serif;
+  font-weight: 400;
+  font-size: 2.4rem;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: #fff;
+}
+h1 + p {
+  margin-top: 0.4rem;
+}
+h2 {
+  letter-spacing: -0.005em;
+}
+
+/* ---------- Glass cards ---------- */
+.border-neutral-800 {
+  border-color: var(--line) !important;
+}
+.border-neutral-700 {
+  border-color: var(--line-strong) !important;
+}
+.rounded-lg.border {
+  border-radius: 1.1rem;
+  background-color: var(--glass);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.rounded-xl {
+  border-radius: 1.25rem;
+}
+.rounded {
+  border-radius: 0.7rem;
+}
+
+/* Inputs, selects, inner panels */
+.bg-neutral-900 {
+  background-color: var(--glass-strong) !important;
+}
+input,
+textarea,
+select {
+  border-radius: 0.7rem;
+}
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: rgba(245, 179, 1, 0.65) !important;
+  box-shadow: 0 0 0 3px rgba(245, 179, 1, 0.12);
+}
+select option {
+  background: #0d0f18;
+  color: #ececf1;
+}
+::placeholder {
+  color: rgba(255, 255, 255, 0.32) !important;
+}
+
+/* Selected tabs / pills */
+.bg-neutral-800 {
+  background-color: rgba(255, 255, 255, 0.11) !important;
+}
+.bg-neutral-700 {
+  background-color: rgba(255, 255, 255, 0.18) !important;
+}
+
+/* Primary buttons become white pills */
+.bg-neutral-100 {
+  border-radius: 9999px !important;
+  background-color: #f4f4f6 !important;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+.bg-neutral-100:hover:not(:disabled) {
+  background-color: #fff !important;
+  transform: translateY(-1px);
+}
+/* Secondary outlined buttons */
+button.border.border-neutral-700 {
+  border-radius: 9999px;
+  background-color: var(--glass);
+}
+button.border.border-neutral-700:hover:not(:disabled) {
+  background-color: var(--glass-strong);
+}
+
+/* Chat bubble / user messages use the warm accent */
+.bg-blue-600,
+.hover\:bg-blue-500:hover {
+  background-color: var(--accent) !important;
+  color: #14110a !important;
+}
+.bg-blue-600 svg {
+  stroke: #14110a;
+}
+.text-blue-400 {
+  color: var(--accent) !important;
+}
+
+/* Chat panel */
+.bg-neutral-950 {
+  background-color: rgba(10, 12, 20, 0.94) !important;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+/* Quiet scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+/* Serif-italic accent helper, use <em class="serif"> */
+.serif {
+  font-family: "Instrument Serif", Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+}
