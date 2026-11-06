@@ -190,7 +190,7 @@ export default function ChatWidget() {
 
   async function send() {
     const text = input.trim();
-    if (!text || busy || !pack) return;
+    if (!text || busy) return;
     setInput("");
     setError(null);
     const history: Msg[] = [...messages, { role: "user", content: text }];
@@ -204,7 +204,21 @@ export default function ChatWidget() {
         setError("You need to be signed in.");
         return;
       }
-      const data = await callChat(history, pack, charts, session.access_token);
+      let context = pack;
+      let chartLinks = charts;
+      if (!context) {
+        // First message before "Start chat": load the data first, then send what you wrote.
+        setStatus("Loading prices, news, calendar and your notes…");
+        const built = await buildPack(session.access_token);
+        context = built.text;
+        chartLinks = built.chartLinks;
+        setPack(built.text);
+        setCharts(built.chartLinks);
+        setStatus(
+          `Loaded: prices, ${built.hasNews ? "news, " : ""}${weekOf === mondayOf(new Date()) ? "calendar, " : ""}your entry and plan, ${built.chartLinks.length} chart link(s).`
+        );
+      }
+      const data = await callChat(history, context, chartLinks, session.access_token);
       if (data.error) setError(data.error);
       else setMessages([...history, { role: "assistant", content: data.text }]);
     } catch {
@@ -254,10 +268,10 @@ export default function ChatWidget() {
             {visible.length === 0 && !busy && (
               <div className="space-y-3 pt-6 text-center">
                 <p className="text-sm text-neutral-400">
-                  Pick a pair and week, then start. It reads real prices, news headlines, your notes and chart links, gives you its lean, and argues with you.
+                  Pick a pair and week, then type your message below, or let it speak first. It reads real prices, news headlines, your notes and chart links, gives you its lean, and argues with you.
                 </p>
                 <button onClick={start} className="rounded bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900">
-                  Start chat on {instrument}
+                  Let the desk partner start on {instrument}
                 </button>
               </div>
             )}
@@ -275,7 +289,7 @@ export default function ChatWidget() {
             {busy && (
               <div className="flex justify-start">
                 <div className="rounded-2xl rounded-bl-sm bg-neutral-800 px-3 py-2 text-sm text-neutral-400">
-                  {visible.length === 0 ? status || "Loading…" : "Thinking…"}
+                  {pack ? "Thinking…" : status || "Loading…"}
                 </div>
               </div>
             )}
@@ -284,7 +298,7 @@ export default function ChatWidget() {
           </div>
 
           {status && visible.length > 0 && <p className="px-3 pb-1 text-[11px] text-neutral-600">{status}</p>}
-          {visible.length > 0 && (
+          {(
             <div className="border-t border-neutral-800 p-2">
               <div className="flex items-end gap-2">
                 <textarea
@@ -297,7 +311,7 @@ export default function ChatWidget() {
                     }
                   }}
                   rows={2}
-                  placeholder="Argue your view, or ask: should I short here?"
+                  placeholder={visible.length === 0 ? "Write your view first, e.g. I want to short NASDAQ at…" : "Argue your view, or ask: should I short here?"}
                   className="flex-1 resize-none rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm"
                 />
                 <button
@@ -308,9 +322,11 @@ export default function ChatWidget() {
                   Send
                 </button>
               </div>
-              <button onClick={start} disabled={busy} className="mt-1 text-[11px] text-neutral-500 hover:text-neutral-300 disabled:opacity-40">
-                New chat with fresh data
-              </button>
+              {visible.length > 0 && (
+                <button onClick={start} disabled={busy} className="mt-1 text-[11px] text-neutral-500 hover:text-neutral-300 disabled:opacity-40">
+                  New chat with fresh data
+                </button>
+              )}
             </div>
           )}
         </div>
