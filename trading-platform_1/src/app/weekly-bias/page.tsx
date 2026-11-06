@@ -373,10 +373,10 @@ export default function WeeklyBiasPage() {
   async function runOne(instrument: string, context: string, token: string, forWeek: string) {
     setResults((r) => ({ ...r, [instrument]: { loading: true } }));
     const e = weekly[instrument];
-    const entered = !(e.bias === "Neutral" && !e.key_levels.trim() && !e.notes.trim());
+    const entered = e.bias !== "Neutral";
     const own = entered
-      ? `== TRADER'S OWN ENTRY FOR ${instrument} (week of ${forWeek}) ==\nbias: ${e.bias}\nkey levels: ${e.key_levels || "none"}\nnotes: ${e.notes || "none"}`
-      : `== TRADER'S OWN ENTRY FOR ${instrument} (week of ${forWeek}) ==\nThe trader entered nothing for this instrument.`;
+      ? `== TRADER'S OWN ENTRY FOR ${instrument} (week of ${forWeek}) ==\nbias: ${e.bias}`
+      : `== TRADER'S OWN ENTRY FOR ${instrument} (week of ${forWeek}) ==\nThe trader entered no bias for this instrument (left on Neutral).`;
     const levels = `== DAILY CANDLES AND KEY LEVELS FOR ${instrument} (computed from daily data; no intraday data) ==\n${ictLines(instrument, prices?.[instrument], forWeek).join("\n")}`;
     try {
       const res = await fetch("/api/weekly-summary", {
@@ -427,7 +427,7 @@ export default function WeeklyBiasPage() {
       .map((l) => l.trim())
       .filter(Boolean)
       .map((l) => {
-        const m = l.match(/^(BIAS|APPROACH|CAREFUL):\s*(.*)$/);
+        const m = l.match(/^(BIAS|SUGGESTION|APPROACH|CAREFUL):\s*(.*)$/);
         return m ? { label: m[1], text: m[2] } : { label: "", text: l };
       });
   }
@@ -560,32 +560,25 @@ export default function WeeklyBiasPage() {
                 </select>
               </div>
               <PriceLine instrument={instrument} price={prices?.[instrument]} />
-              <input
-                placeholder="Key levels (support / resistance)"
-                value={e.key_levels}
-                onChange={(ev) => updateWeekly(instrument, "key_levels", ev.target.value)}
-                className="mb-2 w-full rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm"
-              />
-              <textarea
-                placeholder="This week's notes — structure, plan, what would invalidate it"
-                value={e.notes}
-                onChange={(ev) => updateWeekly(instrument, "notes", ev.target.value)}
-                rows={6}
-                className="w-full rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm"
-              />
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                <input
-                  placeholder="H4 chart link (TradingView share link)"
-                  value={e.chart_h4}
-                  onChange={(ev) => updateWeekly(instrument, "chart_h4", ev.target.value)}
-                  className="w-full rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm"
-                />
-                <input
-                  placeholder="15m chart link (TradingView share link)"
-                  value={e.chart_15m}
-                  onChange={(ev) => updateWeekly(instrument, "chart_15m", ev.target.value)}
-                  className="w-full rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm"
-                />
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-12 shrink-0 rounded-full bg-white/10 py-1 text-center text-xs font-medium text-neutral-200">H4</span>
+                  <input
+                    placeholder="TradingView share link"
+                    value={e.chart_h4}
+                    onChange={(ev) => updateWeekly(instrument, "chart_h4", ev.target.value)}
+                    className="w-full rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-12 shrink-0 rounded-full bg-white/10 py-1 text-center text-xs font-medium text-neutral-200">15min</span>
+                  <input
+                    placeholder="TradingView share link"
+                    value={e.chart_15m}
+                    onChange={(ev) => updateWeekly(instrument, "chart_15m", ev.target.value)}
+                    className="w-full rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm"
+                  />
+                </div>
               </div>
               <div className="mt-3 rounded border border-neutral-800 bg-neutral-900 p-3">
                 <div className="mb-1 flex items-center justify-between">
@@ -608,8 +601,10 @@ export default function WeeklyBiasPage() {
                       const tone =
                         l.label === "BIAS"
                           ? { bar: "border-yellow-400", label: "text-yellow-400" }
-                          : l.label === "APPROACH"
+                          : l.label === "SUGGESTION"
                           ? { bar: "border-green-400", label: "text-green-400" }
+                          : l.label === "APPROACH"
+                          ? { bar: "border-orange-400", label: "text-orange-400" }
                           : l.label === "CAREFUL"
                           ? { bar: "border-red-400", label: "text-red-400" }
                           : { bar: "border-neutral-700", label: "text-neutral-500" };
