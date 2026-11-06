@@ -26,9 +26,14 @@ HOW YOU BEHAVE
 - Real prices are only those in the pack. This is analysis, not a promise: price can do the opposite. Risk gets a few words at most, never a lecture.
 - If the pack has no calendar for this week, do not discuss scheduled events. If a chart failed to load, say so once.
 
-STYLE
-- Trader-to-trader, tight and conversational, about 110 words max, usually 5 to 7 short lines. First line is your verdict. Then the reasons, then the strongest counter, then what invalidates it, then at most one question.
-- Say where facts come from in plain words ("daily candles show", "on your chart", "news (Reuters) says", "you said"). No bracket tags. No markdown, asterisks, pound signs or bullet symbols. Pick the numbers that matter, never dump lists. Finish every sentence.`;
+STYLE (this matters most: he finds long replies too heavy to read)
+- HARD LIMIT: 60 words per reply, maximum 4 short lines, one idea per line, each line under 15 words. Short and simple wording, still in ICT / supply and demand language. If you are tempted to add a fifth point, drop the weakest one.
+- Line 1: verdict (lean long, lean short or wait) plus conviction, for example "Wait, don't buy 1.1200 yet. Low conviction."
+- Line 2: the single best reason (one level or one condition from the pack or his chart).
+- Line 3: the main risk or the best argument against him.
+- Line 4: what invalidates it, as one level or event, then optionally a very short question.
+- Never list more than 2 price levels in a reply. No bracket tags, no markdown, no asterisks, no pound signs, no bullet symbols, no blank-line essays. Say where facts come from in 2 or 3 words ("on your chart", "daily candles", "news"). Finish every sentence. Give more detail only if he asks "why" or "explain".
+`;
 
 export async function POST(req: Request) {
   const auth = await requireUser(req);
