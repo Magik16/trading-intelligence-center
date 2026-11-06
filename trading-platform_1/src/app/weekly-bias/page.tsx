@@ -42,6 +42,7 @@ function generateMonths(): { value: string; label: string }[] {
 
 function mondayOf(date: Date): string {
   const d = new Date(date);
+  d.setHours(12, 0, 0, 0); // noon, so evening hours never roll the date over in UTC
   const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? -6 : 1);
   d.setDate(diff);
