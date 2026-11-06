@@ -6,7 +6,7 @@ import { WATCHLIST } from "@/lib/types";
 type Msg = { role: "user" | "assistant"; content: string; hidden?: boolean };
 type Price =
   | { available: false; reason: string }
-  | { available: true; weekOpen: number; latest: number; latestDate: string; high: number; low: number; prevWeekClose: number | null; changePct: number };
+  | { available: true; weekOpen: number; latest: number; latestDate: string; high: number; low: number; prevWeekClose: number | null; changePct: number; daily?: { date: string; open: number; high: number; low: number; close: number }[] };
 
 function mondayOf(date: Date): string {
   const d = new Date(date);
@@ -34,7 +34,7 @@ function fmt(instrument: string, n: number): string {
 }
 
 const KICKOFF =
-  "Start the session. In 5 short lines give your own read of this instrument for this week: what real price did, what the news headlines and my chart/notes say, and your lean (long, short or stay out) with conviction. Then ask for my view so we can argue it.";
+  "Start the session. In ICT / supply and demand terms and under 110 words, give me your read of this instrument for this week: HTF bias, premium or discount, liquidity taken or not, what my chart shows if loaded, the news, and your lean (long, short or stay out) with conviction. Then ask for my view so we can argue it.";
 
 export default function ChatWidget() {
   const supabase = createClient();
@@ -120,6 +120,37 @@ export default function ChatWidget() {
           lines.push(
             `${w}${w === instrument ? " (THE INSTRUMENT)" : ""}: week open ${fmt(w, p.weekOpen)} | latest close ${fmt(w, p.latest)} on ${p.latestDate} | week high ${fmt(w, p.high)} | week low ${fmt(w, p.low)} | prior week close ${p.prevWeekClose == null ? "n/a" : fmt(w, p.prevWeekClose)} | change ${p.changePct.toFixed(2)}%`
           );
+      }
+    }
+
+    // Daily candles and computed ICT reference levels for the selected instrument
+    const ip = prices?.[instrument];
+    lines.push("", `== DAILY CANDLES AND KEY LEVELS FOR ${instrument} (computed from the daily data above; no intraday data) ==`);
+    if (!ip || !ip.available || !ip.daily || ip.daily.length === 0) {
+      lines.push("(daily candles unavailable)");
+    } else {
+      const d = ip.daily;
+      const prior = d.filter((c) => c.date < weekOf);
+      const cur = d.filter((c) => c.date >= weekOf);
+      for (const c of d)
+        lines.push(`${c.date} ${c.date < weekOf ? "(prior week)" : "(this week)"} | open ${fmt(instrument, c.open)} | high ${fmt(instrument, c.high)} | low ${fmt(instrument, c.low)} | close ${fmt(instrument, c.close)}`);
+      if (prior.length > 0) {
+        const pwh = Math.max(...prior.map((c) => c.high));
+        const pwl = Math.min(...prior.map((c) => c.low));
+        lines.push(`Prior week high (PWH) ${fmt(instrument, pwh)} | prior week low (PWL) ${fmt(instrument, pwl)} | prior week equilibrium ${fmt(instrument, (pwh + pwl) / 2)}`);
+        lines.push(
+          `This week's high ${fmt(instrument, ip.high)} is ${ip.high > pwh ? "ABOVE" : "below"} PWH (buy-side liquidity ${ip.high > pwh ? "swept" : "not yet taken"}); this week's low ${fmt(instrument, ip.low)} is ${ip.low < pwl ? "BELOW" : "above"} PWL (sell-side liquidity ${ip.low < pwl ? "swept" : "not yet taken"}).`
+        );
+      }
+      const mid = (ip.high + ip.low) / 2;
+      const pos = ip.high > ip.low ? ((ip.latest - ip.low) / (ip.high - ip.low)) * 100 : 50;
+      lines.push(
+        `Weekly range so far: low ${fmt(instrument, ip.low)} to high ${fmt(instrument, ip.high)} | equilibrium (50%) ${fmt(instrument, mid)} | latest close ${fmt(instrument, ip.latest)} sits at ${pos.toFixed(0)}% of the range (${pos > 50 ? "premium" : pos < 50 ? "discount" : "at equilibrium"}).`
+      );
+      lines.push(`Latest close is ${ip.latest > ip.weekOpen ? "ABOVE" : "BELOW"} the weekly open ${fmt(instrument, ip.weekOpen)}.`);
+      if (cur.length >= 2) {
+        const pd = cur[cur.length - 2];
+        lines.push(`Previous day (${pd.date}) high (PDH) ${fmt(instrument, pd.high)} | low (PDL) ${fmt(instrument, pd.low)}.`);
       }
     }
 
