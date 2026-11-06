@@ -72,6 +72,7 @@ type Price =
       low: number;
       prevWeekClose: number | null;
       changePct: number;
+      daily?: { date: string; open: number; high: number; low: number; close: number }[];
     };
 
 function fmt(instrument: string, n: number): string {
@@ -94,6 +95,37 @@ function PriceLine({ instrument, price }: { instrument: string; price?: Price })
       </span>
     </p>
   );
+}
+
+
+// ICT reference levels computed from the daily candles (no intraday data).
+function ictLines(instrument: string, p: Price | undefined, weekOf: string): string[] {
+  if (!p || !p.available || !p.daily || p.daily.length === 0) return ["(daily candles unavailable)"];
+  const d = p.daily;
+  const prior = d.filter((c) => c.date < weekOf);
+  const cur = d.filter((c) => c.date >= weekOf);
+  const lines: string[] = [];
+  for (const c of d)
+    lines.push(`${c.date} ${c.date < weekOf ? "(prior week)" : "(this week)"} | open ${fmt(instrument, c.open)} | high ${fmt(instrument, c.high)} | low ${fmt(instrument, c.low)} | close ${fmt(instrument, c.close)}`);
+  if (prior.length > 0) {
+    const pwh = Math.max(...prior.map((c) => c.high));
+    const pwl = Math.min(...prior.map((c) => c.low));
+    lines.push(`Prior week high (PWH) ${fmt(instrument, pwh)} | prior week low (PWL) ${fmt(instrument, pwl)} | prior week equilibrium ${fmt(instrument, (pwh + pwl) / 2)}`);
+    lines.push(
+      `This week's high ${fmt(instrument, p.high)} is ${p.high > pwh ? "ABOVE" : "below"} PWH (buy-side liquidity ${p.high > pwh ? "swept" : "not yet taken"}); this week's low ${fmt(instrument, p.low)} is ${p.low < pwl ? "BELOW" : "above"} PWL (sell-side liquidity ${p.low < pwl ? "swept" : "not yet taken"}).`
+    );
+  }
+  const mid = (p.high + p.low) / 2;
+  const pos = p.high > p.low ? ((p.latest - p.low) / (p.high - p.low)) * 100 : 50;
+  lines.push(
+    `Weekly range so far: low ${fmt(instrument, p.low)} to high ${fmt(instrument, p.high)} | equilibrium (50%) ${fmt(instrument, mid)} | latest close ${fmt(instrument, p.latest)} sits at ${pos.toFixed(0)}% of the range (${pos > 50 ? "premium" : pos < 50 ? "discount" : "at equilibrium"}).`
+  );
+  lines.push(`Latest close is ${p.latest > p.weekOpen ? "ABOVE" : "BELOW"} the weekly open ${fmt(instrument, p.weekOpen)}.`);
+  if (cur.length >= 2) {
+    const pd = cur[cur.length - 2];
+    lines.push(`Previous day (${pd.date}) high (PDH) ${fmt(instrument, pd.high)} | low (PDL) ${fmt(instrument, pd.low)}.`);
+  }
+  return lines;
 }
 
 function emptyWeekly(): Record<string, WeeklyEntry> {
@@ -345,6 +377,7 @@ export default function WeeklyBiasPage() {
     const own = entered
       ? `== TRADER'S OWN ENTRY FOR ${instrument} (week of ${forWeek}) ==\nbias: ${e.bias}\nkey levels: ${e.key_levels || "none"}\nnotes: ${e.notes || "none"}`
       : `== TRADER'S OWN ENTRY FOR ${instrument} (week of ${forWeek}) ==\nThe trader entered nothing for this instrument.`;
+    const levels = `== DAILY CANDLES AND KEY LEVELS FOR ${instrument} (computed from daily data; no intraday data) ==\n${ictLines(instrument, prices?.[instrument], forWeek).join("\n")}`;
     try {
       const res = await fetch("/api/weekly-summary", {
         method: "POST",
@@ -352,7 +385,7 @@ export default function WeeklyBiasPage() {
         body: JSON.stringify({
           weekOf: forWeek,
           instrument,
-          pack: `${own}\n\n${context}`,
+          pack: `${own}\n\n${levels}\n\n${context}`,
           charts: [
             { label: "H4", url: e.chart_h4 },
             { label: "15m", url: e.chart_15m },
@@ -570,13 +603,27 @@ export default function WeeklyBiasPage() {
                 {results[instrument]?.loading && <p className="text-sm text-neutral-500">Reading price and charts…</p>}
                 {results[instrument]?.error && <p className="text-sm text-amber-300">{results[instrument]?.error}</p>}
                 {results[instrument]?.text && (
-                  <div className="space-y-1">
-                    {parseResult(results[instrument]!.text!).map((l, i) => (
-                      <p key={i} className="text-sm text-neutral-200">
-                        {l.label && <span className="mr-2 text-xs font-medium text-neutral-500">{l.label}</span>}
-                        {l.text}
-                      </p>
-                    ))}
+                  <div className="space-y-3">
+                    {parseResult(results[instrument]!.text!).map((l, i) => {
+                      const tone =
+                        l.label === "BIAS"
+                          ? { bar: "border-yellow-400", label: "text-yellow-400" }
+                          : l.label === "APPROACH"
+                          ? { bar: "border-green-400", label: "text-green-400" }
+                          : l.label === "CAREFUL"
+                          ? { bar: "border-red-400", label: "text-red-400" }
+                          : { bar: "border-neutral-700", label: "text-neutral-500" };
+                      return (
+                        <div key={i} className={`border-l-2 pl-3 ${tone.bar}`}>
+                          {l.label && (
+                            <div className={`mb-0.5 text-[11px] font-semibold uppercase tracking-wider ${tone.label}`}>
+                              {l.label}
+                            </div>
+                          )}
+                          <p className="text-sm leading-relaxed text-neutral-200">{l.text}</p>
+                        </div>
+                      );
+                    })}
                     {results[instrument]?.charts?.some((c) => c.includes("NOT loaded")) && (
                       <p className="text-xs text-amber-400">
                         {results[instrument]!.charts!.filter((c) => c.includes("NOT loaded")).join(" · ")}
