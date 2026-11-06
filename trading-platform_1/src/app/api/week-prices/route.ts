@@ -21,8 +21,8 @@ const SYMBOLS: Record<string, string> = {
 type Candle = { date: string; open: number; high: number; low: number; close: number };
 
 async function fetchCandles(symbol: string, weekOf: string): Promise<Candle[] | null> {
-  const start = Math.floor(new Date(weekOf + "T00:00:00Z").getTime() / 1000) - 6 * 86400;
-  const end = start + 14 * 86400;
+  const start = Math.floor(new Date(weekOf + "T00:00:00Z").getTime() / 1000) - 8 * 86400;
+  const end = start + 17 * 86400;
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
     symbol
   )}?interval=1d&period1=${start}&period2=${end}`;
@@ -87,6 +87,7 @@ export async function POST(req: Request) {
           low,
           prevWeekClose: prev?.close ?? null,
           changePct: ((last.close - open) / open) * 100,
+          daily: candles.filter((c) => c.date <= weekEnd).slice(-12),
         },
       ] as const;
     })
