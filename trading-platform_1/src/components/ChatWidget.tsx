@@ -83,9 +83,8 @@ export default function ChatWidget() {
     const lines: string[] = [];
     const auth = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
 
-    const [{ data: entry }, { data: month }, { data: plans }] = await Promise.all([
+    const [{ data: entry }, { data: plans }] = await Promise.all([
       supabase.from("weekly_bias").select("*").eq("week_of", weekOf).eq("instrument", instrument).maybeSingle(),
-      supabase.from("monthly_bias").select("*").eq("month", weekOf.slice(0, 7)).eq("instrument", instrument).maybeSingle(),
       supabase.from("trading_plans").select("name,style,markets,sessions,rules").limit(3),
     ]);
 
@@ -94,8 +93,6 @@ export default function ChatWidget() {
       lines.push("The trader entered nothing for this instrument this week.");
     else lines.push(`bias: ${entry.bias}`, `key levels: ${entry.key_levels || "none"}`, `notes: ${entry.notes || "none"}`);
 
-    lines.push("", `== TRADER'S MONTHLY OUTLOOK (${weekOf.slice(0, 7)}) for ${instrument} ==`);
-    lines.push(month && (month.notes || month.bias !== "Neutral") ? `${month.bias} | ${month.notes || "no notes"}` : "nothing entered");
 
     lines.push("", `== REAL PRICES FOR THE WEEK OF ${weekOf} (daily data, Yahoo Finance; only prices in this section are real) ==`);
     const [pricesRes, newsRes] = await Promise.all([
