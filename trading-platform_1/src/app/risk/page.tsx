@@ -26,6 +26,7 @@ export default function RiskCalculator() {
   const [entry, setEntry] = useState(0);
   const [stop, setStop] = useState(0);
   const [target, setTarget] = useState(0);
+  const [myPosition, setMyPosition] = useState(0); // lots for forex, natural units otherwise; 0 = use the size from risk %
   const [winRate, setWinRate] = useState(45);
   const [rMultiple, setRMultiple] = useState(2);
 
@@ -37,6 +38,14 @@ export default function RiskCalculator() {
   const positionSizeLots = positionSizeUnits / 100000;
   const rewardDistance = Math.abs(target - entry);
   const rr = stopDistance > 0 ? rewardDistance / stopDistance : 0;
+
+  // Position you actually take: what you typed, or (if empty) the size the risk % gives.
+  const usingMine = myPosition > 0;
+  const usedUnits = usingMine ? (meta.isForex ? myPosition * 100000 : myPosition) : positionSizeUnits;
+  const lossIfStopped = usedUnits * stopDistance;
+  const profitAtTarget = usedUnits * rewardDistance;
+  const lossPctOfAccount = balance > 0 ? (lossIfStopped / balance) * 100 : 0;
+  const overRisk = usingMine && lossPctOfAccount > riskPct + 1e-9;
 
   // Simple risk-of-ruin style simulation: expected value per trade and
   // probability of a 5-loss streak given the win rate.
@@ -74,6 +83,48 @@ export default function RiskCalculator() {
         <Field label="Entry price" value={entry} onChange={setEntry} step={0.0001} />
         <Field label="Stop loss price" value={stop} onChange={setStop} step={0.0001} />
         <Field label="Target price" value={target} onChange={setTarget} step={0.0001} />
+        <Field
+          label={meta.isForex ? "Your position size (standard lots)" : `Your position size (${meta.unit})`}
+          value={myPosition}
+          onChange={setMyPosition}
+          step={meta.isForex ? 0.01 : 1}
+        />
+      </section>
+
+      <section className="space-y-3 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+        <div className="text-sm font-medium">
+          If you take this position{" "}
+          <span className="font-normal text-neutral-500">
+            ({usingMine ? "using the size you typed" : "no size typed, using the size from your risk %"})
+          </span>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Stat
+            label="Loss if stopped out"
+            value={stopDistance > 0 && usedUnits > 0 ? `-$${lossIfStopped.toFixed(2)} (${lossPctOfAccount.toFixed(2)}% of account)` : "—"}
+            warn={overRisk}
+          />
+          <Stat
+            label="Balance after a loss"
+            value={stopDistance > 0 && usedUnits > 0 ? `$${(balance - lossIfStopped).toFixed(2)}` : "—"}
+          />
+          <Stat
+            label="Profit if target hit"
+            value={rewardDistance > 0 && usedUnits > 0 ? `+$${profitAtTarget.toFixed(2)}` : "—"}
+          />
+          <Stat
+            label="Balance after a win"
+            value={rewardDistance > 0 && usedUnits > 0 ? `$${(balance + profitAtTarget).toFixed(2)}` : "—"}
+          />
+        </div>
+        {overRisk && (
+          <p className="text-sm text-red-400">
+            This size risks {lossPctOfAccount.toFixed(2)}% of your account, above your {riskPct}% limit.
+          </p>
+        )}
+        {stopDistance === 0 && (
+          <p className="text-xs text-neutral-500">Enter your entry and stop loss price to see the amounts.</p>
+        )}
       </section>
 
       <section className="grid gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-4 sm:grid-cols-2">
