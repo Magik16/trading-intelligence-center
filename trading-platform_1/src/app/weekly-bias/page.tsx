@@ -12,12 +12,6 @@ type WeeklyEntry = {
   chart_15m: string;
 };
 
-type MonthlyEntry = {
-  instrument: string;
-  bias: "Bullish" | "Bearish" | "Neutral";
-  notes: string;
-};
-
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
@@ -162,12 +156,6 @@ function emptyWeekly(): Record<string, WeeklyEntry> {
   );
 }
 
-function emptyMonthly(): Record<string, MonthlyEntry> {
-  return Object.fromEntries(
-    WATCHLIST.map((w) => [w, { instrument: w, bias: "Neutral" as const, notes: "" }])
-  );
-}
-
 export default function WeeklyBiasPage() {
   const supabase = createClient();
   const months = useMemo(() => generateMonths(), []);
@@ -179,14 +167,11 @@ export default function WeeklyBiasPage() {
   const [selectedWeekIdx, setSelectedWeekIdx] = useState(0);
 
   const [weekly, setWeekly] = useState<Record<string, WeeklyEntry>>(emptyWeekly());
-  const [monthly, setMonthly] = useState<Record<string, MonthlyEntry>>(emptyMonthly());
-  const [monthlyOpen, setMonthlyOpen] = useState(true);
 
   const [error, setError] = useState<string | null>(null);
   const [savingWeek, setSavingWeek] = useState(false);
-  const [savingMonth, setSavingMonth] = useState(false);
   const [lightbox, setLightbox] = useState<string | null>(null);
-  const [saveMsg, setSaveMsg] = useState<{ scope: "week" | "month"; ok: boolean; text: string } | null>(null);
+  const [saveMsg, setSaveMsg] = useState<{ scope: "week"; ok: boolean; text: string } | null>(null);
   type AiResult = { loading: boolean; text?: string; error?: string; charts?: string[]; at?: string; storeError?: string };
   const [results, setResults] = useState<Record<string, AiResult>>({});
   const [summaryError, setSummaryError] = useState<string | null>(null);
@@ -259,27 +244,6 @@ export default function WeeklyBiasPage() {
     [supabase]
   );
 
-  const loadMonth = useCallback(
-    (month: string) => {
-      setMonthly(emptyMonthly());
-      supabase
-        .from("monthly_bias")
-        .select("*")
-        .eq("month", month)
-        .then(({ data, error }) => {
-          if (error) return;
-          if (data && data.length > 0) {
-            setMonthly((prev) => {
-              const next = { ...prev };
-              for (const row of data) next[row.instrument] = row;
-              return next;
-            });
-          }
-        });
-    },
-    [supabase]
-  );
-
   useEffect(() => {
     loadWeek(weekOf);
   }, [weekOf, loadWeek]);
@@ -311,16 +275,8 @@ export default function WeeklyBiasPage() {
     };
   }, [weekOf, supabase]);
 
-  useEffect(() => {
-    loadMonth(selectedMonth);
-  }, [selectedMonth, loadMonth]);
-
   function updateWeekly(instrument: string, field: keyof WeeklyEntry, value: string) {
     setWeekly((prev) => ({ ...prev, [instrument]: { ...prev[instrument], [field]: value } }));
-  }
-
-  function updateMonthly(instrument: string, field: keyof MonthlyEntry, value: string) {
-    setMonthly((prev) => ({ ...prev, [instrument]: { ...prev[instrument], [field]: value } }));
   }
 
   function friendlySaveError(message: string): string {
@@ -366,40 +322,9 @@ export default function WeeklyBiasPage() {
     }
   }
 
-  async function saveMonth() {
-    setSavingMonth(true);
-    setSaveMsg(null);
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        setSaveMsg({ scope: "month", ok: false, text: "Not saved: you need to be signed in. Sign in again." });
-        return;
-      }
-      const rows = Object.values(monthly).map((e) => ({
-        user_id: user.id,
-        month: selectedMonth,
-        instrument: e.instrument,
-        bias: e.bias,
-        notes: e.notes,
-      }));
-      const { error } = await supabase
-        .from("monthly_bias")
-        .upsert(rows, { onConflict: "user_id,month,instrument" });
-      if (error) setSaveMsg({ scope: "month", ok: false, text: friendlySaveError(error.message) });
-      else setSaveMsg({ scope: "month", ok: true, text: savedAt() });
-    } catch {
-      setSaveMsg({ scope: "month", ok: false, text: "Not saved: could not reach the server. Check your connection and try again." });
-    } finally {
-      setSavingMonth(false);
-    }
-  }
-
   // Shared context for the selected week: real prices, calendar (current week only), outlook, plan.
   async function buildContext(): Promise<string> {
     const isCurrent = weekOf === mondayOf(new Date());
-    const monthLabel = months.find((m) => m.value === selectedMonth)?.label ?? selectedMonth;
     const lines: string[] = [];
     lines.push(`== REAL PRICES FOR THE WEEK OF ${weekOf} (daily data, Yahoo Finance; only prices in this section are real) ==`);
     for (const w of WATCHLIST) {
@@ -410,12 +335,6 @@ export default function WeeklyBiasPage() {
         lines.push(
           `${w}: week open ${fmt(w, p.weekOpen)} | latest close ${fmt(w, p.latest)} on ${p.latestDate} | week high ${fmt(w, p.high)} | week low ${fmt(w, p.low)} | prior week close ${p.prevWeekClose == null ? "n/a" : fmt(w, p.prevWeekClose)} | change ${p.changePct.toFixed(2)}%`
         );
-    }
-    lines.push("", `== TRADER'S MONTHLY OUTLOOK (${monthLabel}) ==`);
-    for (const w of WATCHLIST) {
-      const m = monthly[w];
-      const empty = m.bias === "Neutral" && !m.notes.trim();
-      lines.push(empty ? `${w}: nothing entered` : `${w}: ${m.bias} | ${m.notes || "no notes"}`);
     }
     lines.push("", "== ECONOMIC CALENDAR (USD, EUR, GBP; high and medium impact) ==");
     if (!isCurrent) {
@@ -531,7 +450,7 @@ export default function WeeklyBiasPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-medium">Weekly bias</h1>
-        <p className="text-sm text-neutral-500">Monthly outlook, then weekly updates.</p>
+        <p className="text-sm text-neutral-500">Pick a month and week, set your bias, add your charts, then ask the AI.</p>
       </div>
 
       {/* Month tabs */}
@@ -556,65 +475,6 @@ export default function WeeklyBiasPage() {
           {error}
         </div>
       )}
-
-      {/* Monthly outlook section */}
-      <section className="rounded-lg border border-neutral-800">
-        <button
-          onClick={() => setMonthlyOpen(!monthlyOpen)}
-          className="flex w-full items-center justify-between px-4 py-3 text-left"
-        >
-          <span className="font-medium">
-            Monthly outlook — {months.find((m) => m.value === selectedMonth)?.label}
-          </span>
-          <span className="text-neutral-500">{monthlyOpen ? "−" : "+"}</span>
-        </button>
-        {monthlyOpen && (
-          <div className="space-y-3 border-t border-neutral-800 p-4">
-            {WATCHLIST.map((instrument) => {
-              const m = monthly[instrument];
-              return (
-                <div key={instrument} className="rounded border border-neutral-800 p-3">
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="text-sm font-medium">{instrument}</span>
-                    <select
-                      value={m.bias}
-                      onChange={(ev) => updateMonthly(instrument, "bias", ev.target.value)}
-                      className={`rounded px-2 py-1 text-xs ${
-                        m.bias === "Bullish"
-                          ? "bg-green-900 text-green-300"
-                          : m.bias === "Bearish"
-                          ? "bg-red-900 text-red-300"
-                          : "bg-neutral-800 text-neutral-300"
-                      }`}
-                    >
-                      <option>Bullish</option>
-                      <option>Bearish</option>
-                      <option>Neutral</option>
-                    </select>
-                  </div>
-                  <textarea
-                    placeholder="Big-picture outlook for the month — expected range, main driver, why it's uncertain"
-                    value={m.notes}
-                    onChange={(ev) => updateMonthly(instrument, "notes", ev.target.value)}
-                    rows={3}
-                    className="w-full rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm"
-                  />
-                </div>
-              );
-            })}
-            <button
-              onClick={saveMonth}
-              disabled={savingMonth}
-              className="rounded bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900 disabled:opacity-50"
-            >
-              {savingMonth ? "Saving…" : "Save monthly outlook"}
-            </button>
-            {saveMsg?.scope === "month" && (
-              <span className={`ml-3 text-sm ${saveMsg.ok ? "text-green-400" : "text-red-400"}`}>{saveMsg.text}</span>
-            )}
-          </div>
-        )}
-      </section>
 
       {/* Week sub-tabs */}
       <div className="flex flex-wrap gap-1">
