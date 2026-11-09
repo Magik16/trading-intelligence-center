@@ -39,9 +39,17 @@ export default function RiskCalculator() {
   const rewardDistance = Math.abs(target - entry);
   const rr = stopDistance > 0 ? rewardDistance / stopDistance : 0;
 
-  // Position you actually take: what you typed, or (if empty) the size the risk % gives.
+  // Suggested size: the biggest size (rounded DOWN) that keeps the loss at your risk %.
+  const sizeDecimals = instrument === "BTC" ? 4 : 2;
+  const rawSuggested = meta.isForex ? positionSizeLots : positionSizeUnits;
+  const sizeFactor = Math.pow(10, sizeDecimals);
+  const suggestedSize = stopDistance > 0 ? Math.floor(rawSuggested * sizeFactor + 1e-9) / sizeFactor : 0;
+  const suggestedUnits = meta.isForex ? suggestedSize * 100000 : suggestedSize;
+  const sizeLabel = meta.isForex ? "lots" : meta.unit;
+
+  // Position you actually take: what you typed, or (if empty) the suggested size.
   const usingMine = myPosition > 0;
-  const usedUnits = usingMine ? (meta.isForex ? myPosition * 100000 : myPosition) : positionSizeUnits;
+  const usedUnits = usingMine ? (meta.isForex ? myPosition * 100000 : myPosition) : suggestedUnits;
   const lossIfStopped = usedUnits * stopDistance;
   const profitAtTarget = usedUnits * rewardDistance;
   const lossPctOfAccount = balance > 0 ? (lossIfStopped / balance) * 100 : 0;
@@ -88,6 +96,28 @@ export default function RiskCalculator() {
           value={myPosition}
           onChange={setMyPosition}
           step={meta.isForex ? 0.01 : 1}
+          placeholder={suggestedSize > 0 ? String(suggestedSize) : "0"}
+          hint={
+            stopDistance > 0 ? (
+              <span>
+                Suggested size for {riskPct}% risk (${dollarRisk.toFixed(2)}):{" "}
+                <span className="font-medium text-green-400">
+                  {suggestedSize} {sizeLabel}
+                </span>
+                {myPosition !== suggestedSize && (
+                  <button
+                    type="button"
+                    onClick={() => setMyPosition(suggestedSize)}
+                    className="ml-2 rounded-full border border-white/20 px-2 py-0.5 text-xs text-neutral-200 hover:bg-white/10"
+                  >
+                    Use this size
+                  </button>
+                )}
+              </span>
+            ) : (
+              "Enter your entry and stop loss price and I'll suggest the size."
+            )
+          }
         />
       </section>
 
@@ -95,7 +125,7 @@ export default function RiskCalculator() {
         <div className="text-sm font-medium">
           If you take this position{" "}
           <span className="font-normal text-neutral-500">
-            ({usingMine ? "using the size you typed" : "no size typed, using the size from your risk %"})
+            ({usingMine ? "using the size you typed" : "using the suggested size from your risk %"})
           </span>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -190,11 +220,15 @@ function Field({
   value,
   onChange,
   step = 1,
+  placeholder = "0",
+  hint,
 }: {
   label: string;
   value: number;
   onChange: (v: number) => void;
   step?: number;
+  placeholder?: string;
+  hint?: React.ReactNode;
 }) {
   // Keep what you type as text so there is never a stuck "0" in front, and "0.5" or "1." can be typed freely.
   const [text, setText] = useState(value === 0 ? "" : String(value));
@@ -210,7 +244,7 @@ function Field({
         inputMode="decimal"
         step={step}
         value={text}
-        placeholder="0"
+        placeholder={placeholder}
         onFocus={(e) => e.target.select()}
         onChange={(e) => {
           setText(e.target.value);
@@ -218,6 +252,7 @@ function Field({
         }}
         className="w-full rounded border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100"
       />
+      {hint && <span className="mt-1 block text-xs text-neutral-500">{hint}</span>}
     </label>
   );
 }
