@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { WATCHLIST } from "@/lib/types";
 
 // How each instrument's position size is expressed. Forex pairs convert
@@ -196,14 +196,26 @@ function Field({
   onChange: (v: number) => void;
   step?: number;
 }) {
+  // Keep what you type as text so there is never a stuck "0" in front, and "0.5" or "1." can be typed freely.
+  const [text, setText] = useState(value === 0 ? "" : String(value));
+  useEffect(() => {
+    if ((parseFloat(text) || 0) !== value) setText(value === 0 ? "" : String(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
   return (
     <label className="block text-sm">
       <span className="mb-1 block text-neutral-400">{label}</span>
       <input
         type="number"
+        inputMode="decimal"
         step={step}
-        value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+        value={text}
+        placeholder="0"
+        onFocus={(e) => e.target.select()}
+        onChange={(e) => {
+          setText(e.target.value);
+          onChange(parseFloat(e.target.value) || 0);
+        }}
         className="w-full rounded border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100"
       />
     </label>
