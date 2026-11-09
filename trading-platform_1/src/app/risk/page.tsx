@@ -19,6 +19,20 @@ const INSTRUMENT_META: Record<string, { unit: string; isForex: boolean }> = {
   BTC: { unit: "BTC", isForex: false },
 };
 
+// What 1 standard lot means at most brokers (units of the instrument per 1.00 lot).
+// It differs between brokers, so it can be edited on the page.
+const DEFAULT_LOT_UNITS: Record<string, number> = {
+  "EUR/USD": 100000, // currency units
+  "GBP/USD": 100000,
+  DXY: 1,
+  GOLD: 100, // ounces
+  USOIL: 1000, // barrels
+  NASDAQ: 1, // index CFD: $1 per point per lot at many brokers
+  "S&P 500": 1,
+  US30: 1,
+  BTC: 1,
+};
+
 export default function RiskCalculator() {
   const [instrument, setInstrument] = useState(WATCHLIST[0]);
   const [balance, setBalance] = useState(10000);
@@ -26,30 +40,39 @@ export default function RiskCalculator() {
   const [entry, setEntry] = useState(0);
   const [stop, setStop] = useState(0);
   const [target, setTarget] = useState(0);
-  const [myPosition, setMyPosition] = useState(0); // lots for forex, natural units otherwise; 0 = use the size from risk %
+  const [manualLots, setManualLots] = useState<number | null>(null); // null = the box shows the auto-calculated size
+  const [lotUnits, setLotUnits] = useState(DEFAULT_LOT_UNITS[WATCHLIST[0]] ?? 1);
   const [winRate, setWinRate] = useState(45);
   const [rMultiple, setRMultiple] = useState(2);
 
   const meta = INSTRUMENT_META[instrument] ?? { unit: "units", isForex: false };
 
+  // Switching instrument loads that instrument's usual lot size and clears the typed size.
+  useEffect(() => {
+    setLotUnits(DEFAULT_LOT_UNITS[instrument] ?? 1);
+    setManualLots(null);
+  }, [instrument]);
+
   const dollarRisk = (balance * riskPct) / 100;
   const stopDistance = Math.abs(entry - stop);
   const positionSizeUnits = stopDistance > 0 ? dollarRisk / stopDistance : 0;
-  const positionSizeLots = positionSizeUnits / 100000;
+  const positionSizeLots = lotUnits > 0 ? positionSizeUnits / lotUnits : 0;
   const rewardDistance = Math.abs(target - entry);
   const rr = stopDistance > 0 ? rewardDistance / stopDistance : 0;
 
-  // Suggested size: the biggest size (rounded DOWN) that keeps the loss at your risk %.
-  const sizeDecimals = instrument === "BTC" ? 4 : 2;
-  const rawSuggested = meta.isForex ? positionSizeLots : positionSizeUnits;
-  const sizeFactor = Math.pow(10, sizeDecimals);
-  const suggestedSize = stopDistance > 0 ? Math.floor(rawSuggested * sizeFactor + 1e-9) / sizeFactor : 0;
-  const suggestedUnits = meta.isForex ? suggestedSize * 100000 : suggestedSize;
-  const sizeLabel = meta.isForex ? "lots" : meta.unit;
+  // Suggested size in standard lots: the biggest size (rounded DOWN to 0.01 lot) that keeps the loss at your risk %.
+  const suggestedLots = stopDistance > 0 ? Math.floor(positionSizeLots * 100 + 1e-9) / 100 : 0;
+  const minLotRisk = 0.01 * lotUnits * stopDistance; // what the smallest size (0.01 lot) would risk
 
-  // Position you actually take: what you typed, or (if empty) the suggested size.
-  const usingMine = myPosition > 0;
-  const usedUnits = usingMine ? (meta.isForex ? myPosition * 100000 : myPosition) : suggestedUnits;
+  // Changing balance, risk %, entry, stop or lot size recalculates the box automatically.
+  useEffect(() => {
+    setManualLots(null);
+  }, [balance, riskPct, entry, stop, lotUnits]);
+
+  // The box shows the calculated size, unless you typed your own.
+  const usingMine = manualLots !== null;
+  const lotsUsed = manualLots ?? suggestedLots;
+  const usedUnits = lotsUsed * lotUnits;
   const lossIfStopped = usedUnits * stopDistance;
   const profitAtTarget = usedUnits * rewardDistance;
   const lossPctOfAccount = balance > 0 ? (lossIfStopped / balance) * 100 : 0;
@@ -92,32 +115,39 @@ export default function RiskCalculator() {
         <Field label="Stop loss price" value={stop} onChange={setStop} step={0.0001} />
         <Field label="Target price" value={target} onChange={setTarget} step={0.0001} />
         <Field
-          label={meta.isForex ? "Your position size (standard lots)" : `Your position size (${meta.unit})`}
-          value={myPosition}
-          onChange={setMyPosition}
-          step={meta.isForex ? 0.01 : 1}
-          placeholder={suggestedSize > 0 ? String(suggestedSize) : "0"}
+          label="Position size (standard lots)"
+          value={lotsUsed}
+          onChange={setManualLots}
+          step={0.01}
           hint={
-            stopDistance > 0 ? (
+            stopDistance === 0 ? (
+              "Enter your entry and stop loss price and the size fills in automatically."
+            ) : suggestedLots === 0 && !usingMine ? (
+              <span className="text-amber-300">
+                Even the smallest size (0.01 lot) would risk ${minLotRisk.toFixed(2)}, more than your ${dollarRisk.toFixed(2)}. Widen your risk % or tighten the stop.
+              </span>
+            ) : usingMine ? (
               <span>
-                Suggested size for {riskPct}% risk (${dollarRisk.toFixed(2)}):{" "}
-                <span className="font-medium text-green-400">
-                  {suggestedSize} {sizeLabel}
-                </span>
-                {myPosition !== suggestedSize && (
-                  <button
-                    type="button"
-                    onClick={() => setMyPosition(suggestedSize)}
-                    className="ml-2 rounded-full border border-white/20 px-2 py-0.5 text-xs text-neutral-200 hover:bg-white/10"
-                  >
-                    Use this size
-                  </button>
-                )}
+                You typed your own size.
+                <button
+                  type="button"
+                  onClick={() => setManualLots(null)}
+                  className="ml-2 rounded-full border border-white/20 px-2 py-0.5 text-xs text-neutral-200 hover:bg-white/10"
+                >
+                  Back to auto ({suggestedLots} lots)
+                </button>
               </span>
             ) : (
-              "Enter your entry and stop loss price and I'll suggest the size."
+              `Calculated for you from your ${riskPct}% risk ($${dollarRisk.toFixed(2)}). Type a number to use your own.`
             )
           }
+        />
+        <Field
+          label={`1 standard lot equals (${meta.unit})`}
+          value={lotUnits}
+          onChange={setLotUnits}
+          step={1}
+          hint="Typical for most brokers. It differs between brokers, so check your broker's contract spec and change it here if needed."
         />
       </section>
 
@@ -125,7 +155,7 @@ export default function RiskCalculator() {
         <div className="text-sm font-medium">
           If you take this position{" "}
           <span className="font-normal text-neutral-500">
-            ({usingMine ? "using the size you typed" : "using the suggested size from your risk %"})
+            ({usingMine ? "using the size you typed" : "using the size calculated from your risk %"})
           </span>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -160,15 +190,13 @@ export default function RiskCalculator() {
       <section className="grid gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-4 sm:grid-cols-2">
         <Stat label="Dollar risk" value={`$${dollarRisk.toFixed(2)}`} />
         <Stat
+          label="Position size (standard lots)"
+          value={stopDistance > 0 ? positionSizeLots.toFixed(3) : "—"}
+        />
+        <Stat
           label={`Position size (${meta.unit})`}
           value={stopDistance > 0 ? positionSizeUnits.toFixed(4) : "—"}
         />
-        {meta.isForex && (
-          <Stat
-            label="Position size (standard lots)"
-            value={stopDistance > 0 ? positionSizeLots.toFixed(3) : "—"}
-          />
-        )}
         <Stat label="Reward:Risk" value={stopDistance > 0 ? `${rr.toFixed(2)}R` : "—"} />
         <Stat label="Max loss if stopped" value={`$${dollarRisk.toFixed(2)}`} />
       </section>
