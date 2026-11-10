@@ -51,18 +51,25 @@ export default function RiskCalculator() {
   useEffect(() => {
     setLotUnits(DEFAULT_LOT_UNITS[instrument] ?? 1);
     setManualLots(null);
+    // Prices from the previous instrument would be wrong for this one, so start clean.
+    setEntry(0);
+    setStop(0);
+    setTarget(0);
   }, [instrument]);
 
   const dollarRisk = (balance * riskPct) / 100;
   const stopDistance = Math.abs(entry - stop);
   const positionSizeUnits = stopDistance > 0 ? dollarRisk / stopDistance : 0;
-  const positionSizeLots = lotUnits > 0 ? positionSizeUnits / lotUnits : 0;
+  // An empty or 0 lot size falls back to the usual one for this instrument.
+  const defaultLot = DEFAULT_LOT_UNITS[instrument] ?? 1;
+  const lotSize = lotUnits > 0 ? lotUnits : defaultLot;
+  const positionSizeLots = positionSizeUnits / lotSize;
   const rewardDistance = Math.abs(target - entry);
   const rr = stopDistance > 0 ? rewardDistance / stopDistance : 0;
 
   // Suggested size in standard lots: the biggest size (rounded DOWN to 0.01 lot) that keeps the loss at your risk %.
   const suggestedLots = stopDistance > 0 ? Math.floor(positionSizeLots * 100 + 1e-9) / 100 : 0;
-  const minLotRisk = 0.01 * lotUnits * stopDistance; // what the smallest size (0.01 lot) would risk
+  const minLotRisk = 0.01 * lotSize * stopDistance; // what the smallest size (0.01 lot) would risk
 
   // Changing balance, risk %, entry, stop or lot size recalculates the box automatically.
   useEffect(() => {
@@ -72,7 +79,7 @@ export default function RiskCalculator() {
   // The box shows the calculated size, unless you typed your own.
   const usingMine = manualLots !== null;
   const lotsUsed = manualLots ?? suggestedLots;
-  const usedUnits = lotsUsed * lotUnits;
+  const usedUnits = lotsUsed * lotSize;
   const lossIfStopped = usedUnits * stopDistance;
   const profitAtTarget = usedUnits * rewardDistance;
   const lossPctOfAccount = balance > 0 ? (lossIfStopped / balance) * 100 : 0;
@@ -124,7 +131,7 @@ export default function RiskCalculator() {
               "Enter your entry and stop loss price and the size fills in automatically."
             ) : suggestedLots === 0 && !usingMine ? (
               <span className="text-amber-300">
-                Even the smallest size (0.01 lot) would risk ${minLotRisk.toFixed(2)}, more than your ${dollarRisk.toFixed(2)}. Widen your risk % or tighten the stop.
+                With these prices, even the smallest size (0.01 lot) would lose ${minLotRisk.toFixed(2)} if stopped, more than the ${dollarRisk.toFixed(2)} you want to risk. Check the entry and stop prices belong to {instrument}, or widen your risk %, or tighten the stop.
               </span>
             ) : usingMine ? (
               <span>
@@ -145,6 +152,7 @@ export default function RiskCalculator() {
         <Field
           label={`1 standard lot equals (${meta.unit})`}
           value={lotUnits}
+          placeholder={String(defaultLot)}
           onChange={setLotUnits}
           step={1}
           hint="Typical for most brokers. It differs between brokers, so check your broker's contract spec and change it here if needed."
