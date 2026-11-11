@@ -13,6 +13,7 @@ RULES
 - For DXY use the USD index line in the pack and say it is a proxy. For GOLD the pack has no price data, so rely only on the trader's own notes and the USD and event context.
 - Keep it quick: each instrument gets exactly three lines (BIAS, APPROACH, CAREFUL), each under 30 words.
 - Plain text only: no markdown, no asterisks, no pound signs.
+- The three-line limit applies to instrument blocks; MY TRADING REVIEW is the only extra section allowed.
 
 FORMAT (follow exactly)
 THIS WEEK IN TWO LINES
@@ -25,6 +26,9 @@ CAREFUL: <event windows or things that would invalidate the bias, with a tag>
 
 Repeat that block for GBP/USD, DXY, GOLD, USOIL, NASDAQ, S&P 500, US30, BTC in that order, each starting with its own === NAME === line.
 
+MY TRADING REVIEW
+<Only from the section "THE TRADER'S OWN TRADES" in the pack. Maximum 5 short lines, each starting with "-". Cover: win/loss/breakeven % for the last closed week and the trend vs earlier weeks; the pattern behind the losses (instrument, direction, or trades that broke the plan); one concrete thing to do better next week. Never invent trades. If fewer than 3 trades are logged, say the sample is too small to judge.>
+
 NOT VERIFIED
 - <at most 3 short lines>`;
 
@@ -35,7 +39,7 @@ You receive the DATA PACK and the ANALYST REPORT. Check the report against the p
 TASKS
 - For every instrument block, check that BIAS matches what the trader entered in the pack (or says "No view entered" if they entered nothing).
 - Check every number, date, time, currency and direction the analyst cites against the pack.
-- Flag any claim with no support in the pack, and any block missing or not following the three-line format (BIAS, APPROACH, CAREFUL).
+- Flag any claim with no support in the pack, and any block missing or not following the three-line format (BIAS, APPROACH, CAREFUL). Also check MY TRADING REVIEW: every percentage, count and trade it cites must match the journal section of the pack.
 - Flag anything that sounds like a buy or sell instruction, an entry, a stop level, a price target, or certainty about the future.
 - Flag where the analyst's reading conflicts with the trader's own bias or trading plan.
 - Do not add new market facts of your own.
