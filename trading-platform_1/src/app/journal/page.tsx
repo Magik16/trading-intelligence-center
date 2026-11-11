@@ -16,6 +16,8 @@ type Entry = {
   followed_plan: boolean;
   chart_h4: string | null;
   chart_15m: string | null;
+  chart_result: string | null;
+  outcome: string | null;
   traded_at: string;
 };
 
@@ -27,11 +29,25 @@ const emptyForm = {
   target: "",
   risk_usd: "",
   result_r: "",
-  setup_tag: "",
   followed_plan: true,
   chart_h4: "",
   chart_15m: "",
+  chart_result: "",
+  outcome: "",
 };
+
+const OUTCOMES = [
+  { key: "win", label: "Win", active: "border-green-400 bg-green-400/15 text-green-400", text: "text-green-400" },
+  { key: "loss", label: "Loss", active: "border-red-400 bg-red-400/15 text-red-400", text: "text-red-400" },
+  { key: "breakeven", label: "Breakeven", active: "border-yellow-400 bg-yellow-400/15 text-yellow-400", text: "text-yellow-400" },
+];
+
+// Uses the chosen outcome; falls back to the R result for older trades.
+function outcomeOf(e: Entry) {
+  if (e.outcome) return OUTCOMES.find((o) => o.key === e.outcome) ?? null;
+  if (e.result_r == null) return null;
+  return OUTCOMES[e.result_r > 0 ? 0 : e.result_r < 0 ? 1 : 2];
+}
 
 export default function Journal() {
   const supabase = createClient();
@@ -67,10 +83,11 @@ export default function Journal() {
       target: e.target?.toString() ?? "",
       risk_usd: e.risk_usd?.toString() ?? "",
       result_r: e.result_r?.toString() ?? "",
-      setup_tag: e.setup_tag ?? "",
       followed_plan: e.followed_plan,
       chart_h4: e.chart_h4 ?? "",
       chart_15m: e.chart_15m ?? "",
+      chart_result: e.chart_result ?? "",
+      outcome: e.outcome ?? "",
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -108,10 +125,11 @@ export default function Journal() {
       target: parseFloat(form.target) || null,
       risk_usd: parseFloat(form.risk_usd) || null,
       result_r: parseFloat(form.result_r) || null,
-      setup_tag: form.setup_tag || null,
       followed_plan: form.followed_plan,
       chart_h4: form.chart_h4 || null,
       chart_15m: form.chart_15m || null,
+      chart_result: form.chart_result || null,
+      outcome: form.outcome || null,
     };
 
     if (editingId) {
@@ -136,7 +154,7 @@ export default function Journal() {
     }
   }
 
-  const winCount = entries.filter((e) => (e.result_r ?? 0) > 0).length;
+  const winCount = entries.filter((e) => outcomeOf(e)?.key === "win").length;
   const total = entries.length;
   const winRate = total > 0 ? ((winCount / total) * 100).toFixed(1) : "—";
   const avgR =
@@ -199,12 +217,6 @@ export default function Journal() {
             <option value="short">Short</option>
           </select>
           <input
-            placeholder="Setup tag"
-            value={form.setup_tag}
-            onChange={(e) => setForm({ ...form, setup_tag: e.target.value })}
-            className="rounded border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm"
-          />
-          <input
             placeholder="Entry"
             value={form.entry}
             onChange={(e) => setForm({ ...form, entry: e.target.value })}
@@ -234,6 +246,20 @@ export default function Journal() {
             onChange={(e) => setForm({ ...form, result_r: e.target.value })}
             className="rounded border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm"
           />
+          <div className="flex items-center gap-2">
+            {OUTCOMES.map((o) => (
+              <button
+                key={o.key}
+                type="button"
+                onClick={() => setForm({ ...form, outcome: form.outcome === o.key ? "" : o.key })}
+                className={`rounded-full border px-3 py-1.5 text-xs font-medium ${
+                  form.outcome === o.key ? o.active : "border-neutral-700 text-neutral-400"
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
           <label className="flex items-center gap-2 text-sm text-neutral-400">
             <input
               type="checkbox"
@@ -248,7 +274,7 @@ export default function Journal() {
           <p className="mb-2 text-xs text-neutral-500">
             Chart links — paste your TradingView (or any) share links, same as your spreadsheet
           </p>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-3">
             <input
               placeholder="H4 chart link"
               value={form.chart_h4}
@@ -259,6 +285,12 @@ export default function Journal() {
               placeholder="15min chart link"
               value={form.chart_15m}
               onChange={(e) => setForm({ ...form, chart_15m: e.target.value })}
+              className="rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm"
+            />
+            <input
+              placeholder="Result chart link (win / loss)"
+              value={form.chart_result}
+              onChange={(e) => setForm({ ...form, chart_result: e.target.value })}
               className="rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm"
             />
           </div>
@@ -284,8 +316,8 @@ export default function Journal() {
               <tr>
                 <th className="py-2">Instrument</th>
                 <th>Dir</th>
-                <th>Setup</th>
                 <th>Risk ($)</th>
+                <th>Result</th>
                 <th>R</th>
                 <th>Plan?</th>
                 <th>Charts</th>
@@ -294,7 +326,7 @@ export default function Journal() {
             </thead>
             <tbody>
               {entries.map((e) => {
-                const hasCharts = e.chart_h4 || e.chart_15m;
+                const hasCharts = e.chart_h4 || e.chart_15m || e.chart_result;
                 return (
                   <>
                     <tr
@@ -305,9 +337,17 @@ export default function Journal() {
                     >
                       <td className="py-2">{e.instrument}</td>
                       <td>{e.direction}</td>
-                      <td>{e.setup_tag ?? "—"}</td>
                       <td>{e.risk_usd != null ? `$${e.risk_usd}` : "—"}</td>
-                      <td className={e.result_r && e.result_r > 0 ? "text-green-400" : "text-red-400"}>
+                      <td>
+                        {outcomeOf(e) ? (
+                          <span className={`rounded-full border px-2 py-0.5 text-xs ${outcomeOf(e)!.active}`}>
+                            {outcomeOf(e)!.label}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className={outcomeOf(e)?.text ?? "text-neutral-300"}>
                         {e.result_r ?? "—"}
                       </td>
                       <td>{e.followed_plan ? "Yes" : "No"}</td>
@@ -350,6 +390,11 @@ export default function Journal() {
                             {e.chart_15m && (
                               <a href={e.chart_15m} target="_blank" className="text-blue-400 hover:underline">
                                 15min
+                              </a>
+                            )}
+                            {e.chart_result && (
+                              <a href={e.chart_result} target="_blank" className="text-blue-400 hover:underline">
+                                Result
                               </a>
                             )}
                           </div>
