@@ -43,13 +43,20 @@ async function buildDataPack(supabase: Db, weekOf: string): Promise<string> {
   const now = new Date();
   const monthValue = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
-  const [cal, macro, strength, bias, monthBias, plans] = await Promise.all([
+  const since = new Date();
+  since.setDate(since.getDate() - 35);
+  const [cal, macro, strength, bias, monthBias, plans, journal] = await Promise.all([
     fetch("/api/calendar").then((r) => r.json()).catch(() => ({ error: "calendar unavailable" })),
     fetch("/api/macro").then((r) => r.json()).catch(() => ({ error: "macro data unavailable" })),
     fetch("/api/weekly-strength").then((r) => r.json()).catch(() => ({ error: "weekly strength unavailable" })),
     supabase.from("weekly_bias").select("instrument,bias,key_levels,notes").eq("week_of", weekOf),
     supabase.from("monthly_bias").select("instrument,bias,notes").eq("month", monthValue),
     supabase.from("trading_plans").select("name,style,markets,sessions,rules"),
+    supabase
+      .from("journal_entries")
+      .select("instrument,direction,risk_usd,result_r,followed_plan,outcome,traded_at")
+      .gte("traded_at", since.toISOString())
+      .order("traded_at", { ascending: true }),
   ]);
 
   const lines: string[] = [];
@@ -105,6 +112,32 @@ async function buildDataPack(supabase: Db, weekOf: string): Promise<string> {
       }
       const recent = p.weeks.slice(-4).map((w) => `${w.weekOf}${w.inProgress ? "*" : ""} ${w.pct >= 0 ? "+" : ""}${w.pct.toFixed(2)}%`);
       lines.push(`${p.label} (up = ${p.upLabel} won, down = ${p.downLabel} won): ${recent.join(", ") || "no data"}`);
+    }
+  }
+
+  // Trader's journal performance, grouped by the week each trade was taken
+  lines.push("", "== THE TRADER'S OWN TRADES (journal, last 5 weeks; facts logged by the trader) ==");
+  type J = { instrument: string; direction: string; risk_usd: number | null; result_r: number | null; followed_plan: boolean; outcome: string | null; traded_at: string };
+  const jr = ((journal.data ?? []) as J[]).map((t) => ({
+    ...t,
+    wk: mondayOf(new Date(t.traded_at)),
+    res: t.outcome ?? (t.result_r == null ? null : t.result_r > 0 ? "win" : t.result_r < 0 ? "loss" : "breakeven"),
+  }));
+  if (jr.length === 0) lines.push("(no trades logged)");
+  const wks = Array.from(new Set(jr.map((t) => t.wk))).sort();
+  for (const wk of wks) {
+    const ts = jr.filter((t) => t.wk === wk);
+    const marked = ts.filter((t) => t.res);
+    const c = (k: string) => marked.filter((t) => t.res === k).length;
+    const pc = (n: number) => (marked.length ? Math.round((n / marked.length) * 100) : 0);
+    const net = ts.reduce((a, t) => a + (t.result_r ?? 0), 0);
+    lines.push(
+      `Week of ${wk}${wk === weekOf ? " (in progress)" : " (closed)"}: ${ts.length} trades | win ${pc(c("win"))}% | loss ${pc(c("loss"))}% | breakeven ${pc(c("breakeven"))}% | net ${net.toFixed(2)}R | plan followed ${ts.filter((t) => t.followed_plan).length}/${ts.length}`
+    );
+    for (const t of ts) {
+      lines.push(
+        `- ${new Date(t.traded_at).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} ${t.instrument} ${t.direction} | ${t.res ?? "no result"} | ${t.result_r ?? "-"}R | risk $${t.risk_usd ?? "-"} | ${t.followed_plan ? "followed plan" : "BROKE plan"}`
+      );
     }
   }
 
