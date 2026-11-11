@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase";
 import { WATCHLIST } from "@/lib/types";
 
@@ -30,6 +30,7 @@ const emptyForm = {
   risk_usd: "",
   result_r: "",
   followed_plan: true,
+  traded_on: "",
   chart_h4: "",
   chart_15m: "",
   chart_result: "",
@@ -47,6 +48,49 @@ function outcomeOf(e: Entry) {
   if (e.outcome) return OUTCOMES.find((o) => o.key === e.outcome) ?? null;
   if (e.result_r == null) return null;
   return OUTCOMES[e.result_r > 0 ? 0 : e.result_r < 0 ? 1 : 2];
+}
+
+function localDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-CA");
+}
+
+// Monday of the week the trade was taken (same logic as Weekly bias).
+function mondayOf(iso: string): string {
+  const d = new Date(iso);
+  d.setHours(12, 0, 0, 0);
+  const day = d.getDay();
+  d.setDate(d.getDate() - day + (day === 0 ? -6 : 1));
+  return d.toLocaleDateString("en-CA");
+}
+
+function weekStats(list: Entry[]) {
+  const marked = list.filter((e) => outcomeOf(e));
+  const n = marked.length;
+  const count = (k: string) => marked.filter((e) => outcomeOf(e)?.key === k).length;
+  const pct = (c: number) => (n > 0 ? Math.round((c / n) * 100) : 0);
+  const wins = count("win");
+  const losses = count("loss");
+  const be = count("breakeven");
+  return {
+    trades: list.length,
+    wins,
+    losses,
+    be,
+    winPct: pct(wins),
+    lossPct: pct(losses),
+    bePct: pct(be),
+    netR: list.reduce((s, e) => s + (e.result_r ?? 0), 0),
+    planPct: list.length ? Math.round((list.filter((e) => e.followed_plan).length / list.length) * 100) : 0,
+    offPlanLosses: list.filter((e) => !e.followed_plan && outcomeOf(e)?.key === "loss").length,
+  };
+}
+
+function weekLabel(monday: string): string {
+  const a = new Date(`${monday}T12:00:00`);
+  const b = new Date(a);
+  b.setDate(b.getDate() + 4);
+  const f = (d: Date) => d.toLocaleDateString([], { month: "short", day: "numeric" });
+  return `${f(a)} – ${f(b)}`;
 }
 
 export default function Journal() {
@@ -84,6 +128,7 @@ export default function Journal() {
       risk_usd: e.risk_usd?.toString() ?? "",
       result_r: e.result_r?.toString() ?? "",
       followed_plan: e.followed_plan,
+      traded_on: localDate(e.traded_at),
       chart_h4: e.chart_h4 ?? "",
       chart_15m: e.chart_15m ?? "",
       chart_result: e.chart_result ?? "",
@@ -126,6 +171,9 @@ export default function Journal() {
       risk_usd: parseFloat(form.risk_usd) || null,
       result_r: parseFloat(form.result_r) || null,
       followed_plan: form.followed_plan,
+      traded_at: form.traded_on
+        ? new Date(`${form.traded_on}T12:00:00`).toISOString()
+        : new Date().toISOString(),
       chart_h4: form.chart_h4 || null,
       chart_15m: form.chart_15m || null,
       chart_result: form.chart_result || null,
@@ -153,6 +201,15 @@ export default function Journal() {
       }
     }
   }
+
+  const thisMonday = mondayOf(new Date().toISOString());
+  const weeks = Array.from(
+    entries.reduce((m, e) => {
+      const k = mondayOf(e.traded_at);
+      m.set(k, [...(m.get(k) ?? []), e]);
+      return m;
+    }, new Map<string, Entry[]>())
+  ).sort((a, b) => (a[0] < b[0] ? 1 : -1));
 
   const winCount = entries.filter((e) => outcomeOf(e)?.key === "win").length;
   const total = entries.length;
@@ -246,6 +303,15 @@ export default function Journal() {
             onChange={(e) => setForm({ ...form, result_r: e.target.value })}
             className="rounded border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm"
           />
+          <label className="flex items-center gap-2 text-sm text-neutral-400">
+            Trade date
+            <input
+              type="date"
+              value={form.traded_on || localDate(new Date().toISOString())}
+              onChange={(e) => setForm({ ...form, traded_on: e.target.value })}
+              className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm"
+            />
+          </label>
           <div className="flex items-center gap-2">
             {OUTCOMES.map((o) => (
               <button
@@ -325,17 +391,47 @@ export default function Journal() {
               </tr>
             </thead>
             <tbody>
-              {entries.map((e) => {
+              {weeks.map(([monday, list]) => {
+                const st = weekStats(list);
+                const closed = monday < thisMonday;
+                return (
+                  <Fragment key={monday}>
+                    <tr className="border-t-2 border-neutral-700 bg-neutral-900">
+                      <td colSpan={8} className="px-1 py-3">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                          <span className="font-medium">Week of {weekLabel(monday)}</span>
+                          <span className={`rounded-full border px-2 py-0.5 text-xs ${closed ? "border-neutral-600 text-neutral-400" : "border-blue-400 text-blue-400"}`}>
+                            {closed ? "Week closed" : "In progress"}
+                          </span>
+                          <span className="text-xs text-neutral-400">{st.trades} trade{st.trades === 1 ? "" : "s"}</span>
+                          <span className="text-xs text-green-400">Win {st.winPct}%</span>
+                          <span className="text-xs text-red-400">Loss {st.lossPct}%</span>
+                          <span className="text-xs text-yellow-400">Breakeven {st.bePct}%</span>
+                          <span className="text-xs text-neutral-300">Net {st.netR > 0 ? "+" : ""}{st.netR.toFixed(2)}R</span>
+                          <span className="text-xs text-neutral-400">Plan followed {st.planPct}%</span>
+                          {st.offPlanLosses > 0 && (
+                            <span className="text-xs text-red-400">{st.offPlanLosses} loss{st.offPlanLosses === 1 ? "" : "es"} off-plan</span>
+                          )}
+                        </div>
+                        {st.trades > 0 && (
+                          <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-neutral-800">
+                            <div className="bg-green-400" style={{ width: `${st.winPct}%` }} />
+                            <div className="bg-yellow-400" style={{ width: `${st.bePct}%` }} />
+                            <div className="bg-red-400" style={{ width: `${st.lossPct}%` }} />
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                    {list.map((e) => {
                 const hasCharts = e.chart_h4 || e.chart_15m || e.chart_result;
                 return (
-                  <>
+                  <Fragment key={e.id}>
                     <tr
-                      key={e.id}
                       className={`border-t border-neutral-800 ${
                         editingId === e.id ? "bg-neutral-900" : ""
                       }`}
                     >
-                      <td className="py-2">{e.instrument}</td>
+                      <td className="py-2">{e.instrument}<span className="ml-2 text-xs text-neutral-500">{new Date(e.traded_at).toLocaleDateString([], { weekday: "short", day: "numeric" })}</span></td>
                       <td>{e.direction}</td>
                       <td>{e.risk_usd != null ? `$${e.risk_usd}` : "—"}</td>
                       <td>
@@ -401,7 +497,10 @@ export default function Journal() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
+                );
+              })}
+                  </Fragment>
                 );
               })}
             </tbody>
