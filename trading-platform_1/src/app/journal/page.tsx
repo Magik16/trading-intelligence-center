@@ -38,9 +38,9 @@ const emptyForm = {
 };
 
 const OUTCOMES = [
-  { key: "win", label: "Win", active: "border-green-400 bg-green-400/15 text-green-400", text: "text-green-400" },
-  { key: "loss", label: "Loss", active: "border-red-400 bg-red-400/15 text-red-400", text: "text-red-400" },
-  { key: "breakeven", label: "Breakeven", active: "border-yellow-400 bg-yellow-400/15 text-yellow-400", text: "text-yellow-400" },
+  { key: "win", label: "Win", active: "border-green-400 bg-green-400/15 text-green-400", text: "text-green-400", color: "#4ade80" },
+  { key: "loss", label: "Loss", active: "border-red-400 bg-red-400/15 text-red-400", text: "text-red-400", color: "#f87171" },
+  { key: "breakeven", label: "Breakeven", active: "border-yellow-400 bg-yellow-400/15 text-yellow-400", text: "text-yellow-400", color: "#facc15" },
 ];
 
 // Uses the chosen outcome; falls back to the R result for older trades.
@@ -380,7 +380,8 @@ export default function Journal() {
           <table className="w-full text-left text-sm">
             <thead className="text-neutral-500">
               <tr>
-                <th className="py-2">Instrument</th>
+                <th className="py-2 pl-3">Week</th>
+                <th>Instrument</th>
                 <th>Dir</th>
                 <th>Risk ($)</th>
                 <th>Result</th>
@@ -397,7 +398,17 @@ export default function Journal() {
                 return (
                   <Fragment key={monday}>
                     <tr className="border-t-2 border-neutral-700 bg-neutral-900">
-                      <td colSpan={8} className="px-1 py-3">
+                      <td colSpan={9} className="px-1 py-3">
+                        <div className="flex items-stretch gap-3">
+                          {st.trades > 0 ? (
+                            <div className="flex w-1.5 shrink-0 flex-col overflow-hidden rounded-full bg-neutral-800">
+                              <div className="bg-green-400" style={{ height: `${st.winPct}%` }} />
+                              <div className="bg-yellow-400" style={{ height: `${st.bePct}%` }} />
+                              <div className="bg-red-400" style={{ height: `${st.lossPct}%` }} />
+                            </div>
+                          ) : (
+                            <div className="w-1.5 shrink-0 rounded-full bg-neutral-800" />
+                          )}
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                           <span className="font-medium">Week of {weekLabel(monday)}</span>
                           <span className={`rounded-full border px-2 py-0.5 text-xs ${closed ? "border-neutral-600 text-neutral-400" : "border-blue-400 text-blue-400"}`}>
@@ -413,13 +424,7 @@ export default function Journal() {
                             <span className="text-xs text-red-400">{st.offPlanLosses} loss{st.offPlanLosses === 1 ? "" : "es"} off-plan</span>
                           )}
                         </div>
-                        {st.trades > 0 && (
-                          <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-neutral-800">
-                            <div className="bg-green-400" style={{ width: `${st.winPct}%` }} />
-                            <div className="bg-yellow-400" style={{ width: `${st.bePct}%` }} />
-                            <div className="bg-red-400" style={{ width: `${st.lossPct}%` }} />
-                          </div>
-                        )}
+                        </div>
                       </td>
                     </tr>
                     {list.map((e) => {
@@ -431,7 +436,8 @@ export default function Journal() {
                         editingId === e.id ? "bg-neutral-900" : ""
                       }`}
                     >
-                      <td className="py-2">{e.instrument}<span className="ml-2 text-xs text-neutral-500">{new Date(e.traded_at).toLocaleDateString([], { weekday: "short", day: "numeric" })}</span></td>
+                      <td className="py-2 pl-3 text-xs text-neutral-400" style={{ borderLeft: `4px solid ${outcomeOf(e)?.color ?? "#404040"}` }}>{weekLabel(monday)}</td>
+                      <td>{e.instrument}<span className="ml-2 text-xs text-neutral-500">{new Date(e.traded_at).toLocaleDateString([], { weekday: "short", day: "numeric" })}</span></td>
                       <td>{e.direction}</td>
                       <td>{e.risk_usd != null ? `$${e.risk_usd}` : "—"}</td>
                       <td>
@@ -476,7 +482,7 @@ export default function Journal() {
                     </tr>
                     {chartsOpen === e.id && hasCharts && (
                       <tr className="border-t border-neutral-900 bg-neutral-950">
-                        <td colSpan={8} className="py-2">
+                        <td colSpan={9} className="py-2">
                           <div className="flex flex-wrap gap-3 text-xs">
                             {e.chart_h4 && (
                               <a href={e.chart_h4} target="_blank" className="text-blue-400 hover:underline">
